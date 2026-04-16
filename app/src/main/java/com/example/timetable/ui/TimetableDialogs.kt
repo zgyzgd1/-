@@ -11,54 +11,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.timetable.data.*
 
-@Composable
-fun SharePayloadImportDialog(
-    onDismiss: () -> Unit,
-    onImport: (String) -> Unit,
-) {
-    var payload by rememberSaveable { mutableStateOf("") }
-    var errorText by remember { mutableStateOf<String?>(null) }
 
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("导入分享码") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                AppTextField(
-                    value = payload,
-                    onValueChange = {
-                        payload = it
-                        errorText = null
-                    },
-                    label = "分享文本",
-                    minLines = 4,
-                )
-                if (errorText != null) {
-                    Text(errorText!!, color = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                val input = payload.trim()
-                if (input.isBlank()) {
-                    errorText = "请输入分享文本"
-                } else if (input.length > 300_000) {
-                    errorText = "分享内容过长"
-                } else {
-                    onImport(input)
-                }
-            }) {
-                Text("导入")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-    )
-}
 /**
  * 课程编辑器对话框
  * 提供表单用于添加或编辑课程信息

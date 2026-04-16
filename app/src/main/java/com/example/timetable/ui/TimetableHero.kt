@@ -24,8 +24,6 @@ fun HeroSection(
     courseCount: Int,
     onImport: () -> Unit,
     onExport: () -> Unit,
-    onImportShare: () -> Unit,
-    onShare: () -> Unit,
     onEnableNotifications: () -> Unit,
     reminderMinutes: Int,
     reminderOptions: List<Int>,
@@ -45,7 +43,7 @@ fun HeroSection(
                 color = MaterialTheme.colorScheme.onPrimary,
             )
             Text(
-                text = "当前共 $courseCount 门课程。支持导入 .ics、导出 .ics，并可用二维码分享课程表。",
+                text = "当前共 $courseCount 门课程。支持导入和导出 .ics 格式。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
             )
@@ -59,17 +57,6 @@ fun HeroSection(
                     }
                     Button(onClick = onExport, modifier = Modifier.weight(1f)) {
                         Text("导出日历", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    OutlinedButton(onClick = onImportShare, modifier = Modifier.weight(1f)) {
-                        Text("导入分享码", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f)) {
-                        Text("二维码分享", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

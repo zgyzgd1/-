@@ -110,12 +110,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
      */
     fun exportIcs(): String = IcsCalendar.write(_entries.value)
 
-    /**
-     * 导出课程表为分享用的 JSON 载荷
-     *
-     * @return JSON 格式的字符串，用于二维码分享
-     */
-    fun exportSharePayload(): String = TimetableShareCodec.encode(_entries.value)
+
 
     /**
      * 从 ICS 文件导入课程数据
@@ -144,26 +139,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * 从分享载荷（JSON 字符串）导入课程数据
-     * 通常用于扫描二维码后导入
-     *
-     * @param payload JSON 格式的课程数据字符串
-     */
-    fun importFromSharePayload(payload: String) {
-        viewModelScope.launch {
-            if (payload.length > MAX_SHARE_PAYLOAD_LENGTH) {
-                postMessage("导入失败：分享内容过长")
-                return@launch
-            }
-            val imported = TimetableShareCodec.decode(payload)
-            if (imported.isEmpty()) {
-                postMessage("未识别到可导入的二维码内容")
-                return@launch
-            }
-            applyImportedEntries(imported)
-        }
-    }
+
 
     fun updateReminderMinutes(minutes: Int) {
         CourseReminderScheduler.setReminderMinutes(getApplication(), minutes)

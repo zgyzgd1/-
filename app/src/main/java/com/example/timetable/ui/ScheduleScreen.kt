@@ -108,10 +108,6 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     val selectedLocalDate = parseEntryDate(selectedDate) ?: minDate
     // 正在编辑的课程条目，null 表示没有在编辑
     var editingEntry by remember { mutableStateOf<TimetableEntry?>(null) }
-    // 是否显示二维码分享弹窗
-    var showQr by remember { mutableStateOf(false) }
-    // 是否显示分享码导入弹窗
-    var showShareImport by remember { mutableStateOf(false) }
     var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
 
@@ -258,8 +254,6 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                             )
                         },
                         onExport = { exportLauncher.launch("课程表导出.ics") },
-                        onImportShare = { showShareImport = true },
-                        onShare = { showQr = true },
                         onEnableNotifications = {
                             when {
                                 Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> {
@@ -342,55 +336,5 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         )
     }
 
-    // 二维码分享弹窗
-    if (showQr) {
-        val payload = viewModel.exportSharePayload()
-        androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { showQr = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text("二维码分享", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "该二维码包含当前课程表数据，另一台设备可用同类页面导入。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                QrCode(
-                    content = payload,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(28.dp)),
-                )
-                OutlinedButton(onClick = {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, payload)
-                    }
-                    context.startActivity(Intent.createChooser(shareIntent, "分享课程表"))
-                }) {
-                    Icon(imageVector = Icons.Default.Share, contentDescription = null)
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text("分享文本")
-                }
-            }
-        }
-    }
-
-    if (showShareImport) {
-        SharePayloadImportDialog(
-            onDismiss = { showShareImport = false },
-            onImport = { payload ->
-                viewModel.importFromSharePayload(payload)
-                showShareImport = false
-            },
-        )
-    }
 }
 
