@@ -45,9 +45,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             // 实时订阅 DB 更新，如果有任何增删操作影响了 Flow 数据，
             // 就会自动触发提醒同步模块
             entries.collect { currentEntries ->
-                if (currentEntries.isNotEmpty()) {
-                    syncReminders(currentEntries)
-                }
+                syncReminders(currentEntries)
             }
         }
     }

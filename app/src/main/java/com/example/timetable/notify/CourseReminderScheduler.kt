@@ -11,6 +11,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.timetable.data.TimetableEntry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -31,15 +35,18 @@ object CourseReminderScheduler {
     private const val KEY_REMINDER_MINUTES = "reminder_minutes"
     private const val DEFAULT_REMINDER_MINUTES = 20
     private val reminderOptions = listOf(5, 10, 20, 30)
+    private val resyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val systemZone: ZoneId = ZoneId.systemDefault()
 
+    @Synchronized
     fun sync(context: Context, entries: List<TimetableEntry>) {
-        ensureNotificationChannel(context)
-        val reminderMinutes = getReminderMinutes(context)
+        val appContext = context.applicationContext
+        ensureNotificationChannel(appContext)
+        val reminderMinutes = getReminderMinutes(appContext)
 
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val oldCodes = prefs.getStringSet(KEY_CODES, emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.toSet()
 
         val now = System.currentTimeMillis()
@@ -70,16 +77,16 @@ object CourseReminderScheduler {
 
         val newCodes = newSchedules.keys
         val codesToCancel = oldCodes - newCodes
-        val codesToSchedule = newCodes - oldCodes
 
         codesToCancel.forEach { code ->
-            cancelAlarm(context, alarmManager, code)
+            cancelAlarm(appContext, alarmManager, code)
         }
 
-        codesToSchedule.forEach { requestCode ->
-            val (triggerAtMillis, entry) = newSchedules[requestCode]!!
+        // 为当前需要触发的课程全部重设闹钟，保证同 requestCode 的文案也能更新。
+        newSchedules.forEach { (requestCode, scheduled) ->
+            val (triggerAtMillis, entry) = scheduled
             val pendingIntent = createPendingIntent(
-                context = context,
+                context = appContext,
                 entry = entry,
                 requestCode = requestCode,
                 includeNoCreateFlag = false,
@@ -105,10 +112,15 @@ object CourseReminderScheduler {
 
     fun reminderMinuteOptions(): List<Int> = reminderOptions
 
-    fun resyncFromStorage(context: Context) {
-        kotlinx.coroutines.runBlocking {
-            val entries = com.example.timetable.data.TimetableRepository.getEntriesNow(context)
-            sync(context, entries)
+    fun resyncFromStorage(context: Context, onComplete: (() -> Unit)? = null) {
+        val appContext = context.applicationContext
+        resyncScope.launch {
+            try {
+                val entries = com.example.timetable.data.TimetableRepository.getEntriesNow(appContext)
+                sync(appContext, entries)
+            } finally {
+                onComplete?.invoke()
+            }
         }
     }
 

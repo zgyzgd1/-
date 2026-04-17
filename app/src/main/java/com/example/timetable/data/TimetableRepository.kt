@@ -1,6 +1,7 @@
 package com.example.timetable.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.example.timetable.data.room.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -69,8 +70,11 @@ object TimetableRepository {
      * 覆盖式替换所有的课表项，用于“导入 ICS 文件”动作
      */
     suspend fun replaceAllEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
-        val dao = AppDatabase.getDatabase(context).timetableDao()
-        dao.deleteAll()
-        dao.upsertEntries(entries)
+        val db = AppDatabase.getDatabase(context)
+        db.withTransaction {
+            val dao = db.timetableDao()
+            dao.deleteAll()
+            dao.upsertEntries(entries)
+        }
     }
 }

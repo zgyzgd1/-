@@ -11,6 +11,14 @@ import com.example.timetable.data.formatMinutes
 
 class CourseReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // 无论通知权限是否开启，都必须执行接力重排程，
+        // 否则整条提醒链路会断裂，后续课程将永远无法触发提醒。
+        val pendingResult = goAsync()
+        CourseReminderScheduler.resyncFromStorage(context) {
+            pendingResult.finish()
+        }
+
+        // 仅在通知权限已授予时才发送通知
         if (!CourseReminderScheduler.notificationsEnabled(context)) return
 
         CourseReminderScheduler.ensureNotificationChannel(context)
@@ -52,8 +60,5 @@ class CourseReminderReceiver : BroadcastReceiver() {
         runCatching {
             NotificationManagerCompat.from(context).notify(requestCode, notification)
         }
-
-        // 接力机制：当前提醒发送后，立即安排下一次最近的提醒
-        CourseReminderScheduler.resyncFromStorage(context)
     }
 }
