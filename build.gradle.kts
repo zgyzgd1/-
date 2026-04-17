@@ -1,12 +1,5 @@
-buildscript {
-    repositories {
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-    }
-
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.5.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
-        classpath("com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:1.9.24-1.0.20")
-    }
+plugins {
+    id("com.android.application") version "9.1.1" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.10" apply false
+    id("com.google.devtools.ksp") version "2.3.6" apply false
 }

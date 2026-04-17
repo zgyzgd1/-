@@ -10,8 +10,33 @@ import java.io.File
 
 object TimetableRepository {
     private const val STORAGE_FILE_NAME = "timetable_entries.json"
+    private const val PREFS_NAME = "timetable_repository_prefs"
+    private const val KEY_SAMPLE_ENTRIES_SEEDED = "sample_entries_seeded"
 
     private fun getLegacyStorageFile(context: Context): File = File(context.filesDir, STORAGE_FILE_NAME)
+
+    private fun getPreferences(context: Context) =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun hasSeededSampleEntries(context: Context): Boolean {
+        return getPreferences(context).getBoolean(KEY_SAMPLE_ENTRIES_SEEDED, false)
+    }
+
+    private fun markSampleEntriesSeeded(context: Context) {
+        getPreferences(context).edit().putBoolean(KEY_SAMPLE_ENTRIES_SEEDED, true).apply()
+    }
+
+    internal fun shouldSeedSampleEntries(hasEntries: Boolean, hasSeededSampleEntries: Boolean): Boolean {
+        return !hasEntries && !hasSeededSampleEntries
+    }
+
+    private suspend fun seedSampleEntriesIfNeeded(context: Context, dao: com.example.timetable.data.room.TimetableDao) {
+        val currentEntries = dao.getAllEntries()
+        if (shouldSeedSampleEntries(currentEntries.isNotEmpty(), hasSeededSampleEntries(context))) {
+            dao.upsertEntries(sampleEntries())
+        }
+        markSampleEntriesSeeded(context)
+    }
 
     /**
      * 迁移与初始化函数：在 ViewModel 启动时调用一次。
@@ -23,9 +48,7 @@ object TimetableRepository {
         val dao = AppDatabase.getDatabase(context).timetableDao()
         
         if (!file.exists()) {
-            if (dao.getAllEntries().isEmpty()) {
-                dao.upsertEntries(sampleEntries())
-            }
+            seedSampleEntriesIfNeeded(context, dao)
             return@withContext
         }
 
@@ -35,10 +58,10 @@ object TimetableRepository {
         if (persisted.isNotEmpty()) {
             dao.upsertEntries(persisted)
         } else {
-            if (dao.getAllEntries().isEmpty()) {
-                dao.upsertEntries(sampleEntries())
-            }
+            seedSampleEntriesIfNeeded(context, dao)
         }
+
+        markSampleEntriesSeeded(context)
         
         // 删除旧 JSON 缓存，此后均以 Room 数据库为源
         file.delete()

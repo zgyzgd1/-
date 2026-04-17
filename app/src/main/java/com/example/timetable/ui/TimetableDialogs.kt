@@ -89,8 +89,8 @@ fun EntryEditorDialog(
                     minLines = 2,
                 )
                 // 错误提示文本
-                if (errorText != null) {
-                    Text(errorText!!, color = MaterialTheme.colorScheme.error)
+                errorText?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
                 }
             }
         },

@@ -23,7 +23,8 @@ object IcsCalendar {
     // 用于分割行的正则表达式，支持不同平台的换行符
     private val lineSplit = Regex("\\r?\\n")
     private val multiValueKeys = setOf("EXDATE")
-    private val systemZone: ZoneId = ZoneId.systemDefault()
+    private val systemZone: ZoneId
+        get() = ZoneId.systemDefault()
 
     /**
      * 将课程列表写入 ICS 格式的字符串

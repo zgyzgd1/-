@@ -37,7 +37,8 @@ object CourseReminderScheduler {
     private val reminderOptions = listOf(5, 10, 20, 30)
     private val resyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val systemZone: ZoneId = ZoneId.systemDefault()
+    private val systemZone: ZoneId
+        get() = ZoneId.systemDefault()
 
     @Synchronized
     fun sync(context: Context, entries: List<TimetableEntry>) {
@@ -45,7 +46,7 @@ object CourseReminderScheduler {
         ensureNotificationChannel(appContext)
         val reminderMinutes = getReminderMinutes(appContext)
 
-        val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val alarmManager = appContext.getSystemService(AlarmManager::class.java) ?: return
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val oldCodes = prefs.getStringSet(KEY_CODES, emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.toSet()
 
@@ -61,7 +62,7 @@ object CourseReminderScheduler {
             // 只看未来的课程，过去的不定闹钟
             if (triggerAtMillis <= now) return@forEach
 
-            if (nextTriggerAtMillis == null || triggerAtMillis < nextTriggerAtMillis!!) {
+            if (nextTriggerAtMillis == null || triggerAtMillis < nextTriggerAtMillis) {
                 nextTriggerAtMillis = triggerAtMillis
                 nextEntries.clear()
                 nextEntries.add(entry)
@@ -70,9 +71,11 @@ object CourseReminderScheduler {
             }
         }
 
+        val scheduledTriggerAtMillis = nextTriggerAtMillis ?: return
+
         nextEntries.forEach { entry ->
             val requestCode = requestCodeFor(entry, reminderMinutes)
-            newSchedules[requestCode] = nextTriggerAtMillis!! to entry
+            newSchedules[requestCode] = scheduledTriggerAtMillis to entry
         }
 
         val newCodes = newSchedules.keys
@@ -132,7 +135,7 @@ object CourseReminderScheduler {
     fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
         val existing = manager.getNotificationChannel(CHANNEL_ID)
         if (existing != null) return
 

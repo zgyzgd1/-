@@ -149,7 +149,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                     )
                 },
-                colors = TopAppBarDefaults.largeTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.95f),
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
