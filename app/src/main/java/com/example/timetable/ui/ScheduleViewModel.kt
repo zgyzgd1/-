@@ -12,42 +12,43 @@ import com.example.timetable.notify.CourseReminderScheduler
 import com.example.timetable.data.TimetableRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * 课程表视图模型
  * 管理课程数据的状态和业务逻辑，包括增删改查、导入导出等功能
- * 使用 Kotlin Flow 实现响应式数据流
+ * 使用 Kotlin Flow + Room 数据库驱动数据流
  */
 class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
-    private val entryComparator = compareBy<TimetableEntry> { it.date }.thenBy { it.startMinutes }
 
-    // 存储课程列表的可变状态流
-    private val _entries = MutableStateFlow<List<TimetableEntry>>(emptyList())
-    // 对外暴露的只读课程列表流
-    val entries = _entries.asStateFlow()
+    // 真正的实时课程流直接暴露自 Repository (Room Database)
+    val entries: StateFlow<List<TimetableEntry>> = TimetableRepository.getEntriesStream(application)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
-    // 用于发送用户提示消息的共享流
     private val _messages = MutableSharedFlow<String>()
-    // 对外暴露的只读消息流
     val messages = _messages.asSharedFlow()
 
     init {
         viewModelScope.launch {
-            val loadState = TimetableRepository.loadEntries(getApplication())
-            val sorted = sortEntries(loadState.entries)
-            _entries.value = sorted
-
-            if (loadState.shouldPersist) {
-                TimetableRepository.saveEntries(getApplication(), sorted)
+            // 平滑升级与兜底方案，完成迁移。
+            TimetableRepository.ensureMigrated(getApplication())
+            
+            // 实时订阅 DB 更新，如果有任何增删操作影响了 Flow 数据，
+            // 就会自动触发提醒同步模块
+            entries.collect { currentEntries ->
+                if (currentEntries.isNotEmpty()) {
+                    syncReminders(currentEntries)
+                }
             }
-            syncReminders(sorted)
-            loadState.warningMessage?.let { postMessage(it) }
         }
     }
 
@@ -60,26 +61,18 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             postMessage("保存失败：$it")
             return
         }
-        val conflict = findConflict(normalized, _entries.value)
+        val conflict = findConflict(normalized, entries.value)
 
-        val updated = _entries.updateAndGet { current ->
-            val mutable = current.toMutableList()
-            val index = mutable.indexOfFirst { it.id == normalized.id }
-            if (index >= 0) {
-                mutable[index] = normalized
+        viewModelScope.launch {
+            TimetableRepository.upsertEntry(getApplication(), normalized)
+            
+            if (conflict == null) {
+                postMessage("已保存课程")
             } else {
-                mutable += normalized
+                postMessage(
+                    "已保存课程（与 ${conflict.title} ${formatMinutes(conflict.startMinutes)}-${formatMinutes(conflict.endMinutes)} 时间重叠）"
+                )
             }
-            sortEntries(mutable)
-        }
-        persistEntries(updated)
-        syncReminders(updated)
-        if (conflict == null) {
-            postMessage("已保存课程")
-        } else {
-            postMessage(
-                "已保存课程（与 ${conflict.title} ${formatMinutes(conflict.startMinutes)}-${formatMinutes(conflict.endMinutes)} 时间重叠）"
-            )
         }
     }
 
@@ -87,16 +80,16 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
      * 删除指定 ID 的课程条目
      */
     fun deleteEntry(entryId: String) {
-        val updated = _entries.updateAndGet { current -> current.filterNot { it.id == entryId } }
-        persistEntries(updated)
-        syncReminders(updated)
-        postMessage("已删除课程")
+        viewModelScope.launch {
+            TimetableRepository.deleteEntry(getApplication(), entryId)
+            postMessage("已删除课程")
+        }
     }
 
     /**
      * 导出课程表为 ICS 格式
      */
-    fun exportIcs(): String = IcsCalendar.write(_entries.value)
+    fun exportIcs(): String = IcsCalendar.write(entries.value)
 
     /**
      * 从 ICS 文件导入课程数据
@@ -123,7 +116,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
 
     fun updateReminderMinutes(minutes: Int) {
         CourseReminderScheduler.setReminderMinutes(getApplication(), minutes)
-        syncReminders(_entries.value)
+        syncReminders(entries.value)
         postMessage("已设置为提前 $minutes 分钟提醒")
     }
 
@@ -139,24 +132,11 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun persistEntries(entries: List<TimetableEntry>) {
-        viewModelScope.launch {
-            TimetableRepository.saveEntries(getApplication(), entries).onFailure {
-                postMessage("保存失败：${it.message ?: "未知错误"}")
-            }
-        }
-    }
-
-    private suspend fun persistEntriesNow(entries: List<TimetableEntry>): Boolean {
-        return TimetableRepository.saveEntries(getApplication(), entries).isSuccess
-    }
-
     private suspend fun applyImportedEntries(imported: List<TimetableEntry>) {
         val validEntries = mutableListOf<TimetableEntry>()
         var invalidCount = 0
 
-        sortEntries(imported)
-            .map(::normalizeEntry)
+        imported.map(::normalizeEntry)
             .forEach { entry ->
                 if (validateEntry(entry) != null) {
                     invalidCount++
@@ -170,18 +150,14 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        val updated = sortEntries(validEntries)
-        val conflictCount = countConflictPairs(updated)
-        _entries.value = updated
-        if (persistEntriesNow(updated)) {
-            syncReminders(updated)
-            if (invalidCount == 0 && conflictCount == 0) {
-                postMessage("已导入 ${updated.size} 条课程，并保存为当前课程表")
-            } else {
-                postMessage("已导入 ${updated.size} 条课程，跳过无效 ${invalidCount} 条，检测到冲突 ${conflictCount} 组")
-            }
+        val conflictCount = countConflictPairs(validEntries)
+        
+        TimetableRepository.replaceAllEntries(getApplication(), validEntries)
+        
+        if (invalidCount == 0 && conflictCount == 0) {
+            postMessage("已导入 ${validEntries.size} 条课程，并保存为当前课程表")
         } else {
-            postMessage("导入成功，但保存失败")
+            postMessage("已导入 ${validEntries.size} 条课程，跳过无效 ${invalidCount} 条，检测到冲突 ${conflictCount} 组")
         }
     }
 
@@ -206,8 +182,8 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun findConflict(target: TimetableEntry, entries: List<TimetableEntry>): TimetableEntry? {
-        return entries.firstOrNull { existing ->
+    private fun findConflict(target: TimetableEntry, entriesList: List<TimetableEntry>): TimetableEntry? {
+        return entriesList.firstOrNull { existing ->
             existing.id != target.id &&
                 existing.date == target.date &&
                 target.startMinutes < existing.endMinutes &&
@@ -215,9 +191,9 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun countConflictPairs(entries: List<TimetableEntry>): Int {
+    private fun countConflictPairs(entriesList: List<TimetableEntry>): Int {
         var pairs = 0
-        entries.groupBy { it.date }.values.forEach { sameDay ->
+        entriesList.groupBy { it.date }.values.forEach { sameDay ->
             val sorted = sameDay.sortedBy { it.startMinutes }
             for (index in sorted.indices) {
                 val current = sorted[index]
@@ -233,12 +209,9 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         return pairs
     }
 
-    private fun sortEntries(entries: List<TimetableEntry>): List<TimetableEntry> =
-        entries.sortedWith(entryComparator)
-
-    private fun syncReminders(entries: List<TimetableEntry>) {
+    private fun syncReminders(entriesList: List<TimetableEntry>) {
         viewModelScope.launch(Dispatchers.Default) {
-            CourseReminderScheduler.sync(getApplication(), entries)
+            CourseReminderScheduler.sync(getApplication(), entriesList)
         }
     }
 
@@ -246,9 +219,5 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _messages.emit(message)
         }
-    }
-
-    private companion object {
-        const val MAX_SHARE_PAYLOAD_LENGTH = 300_000
     }
 }

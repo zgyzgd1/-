@@ -3,6 +3,8 @@ package com.example.timetable.data
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 
 /**
  * 课程表条目数据类
@@ -17,8 +19,9 @@ import java.util.UUID
  * @property location 上课地点
  * @property note 备注信息
  */
+@Entity(tableName = "timetable_entries")
 data class TimetableEntry(
-    val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val title: String,
     val date: String,
     val dayOfWeek: Int,

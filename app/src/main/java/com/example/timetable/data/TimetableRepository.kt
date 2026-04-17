@@ -1,112 +1,76 @@
 package com.example.timetable.data
 
 import android.content.Context
+import com.example.timetable.data.room.AppDatabase
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
-
-data class EntryLoadState(
-    val entries: List<TimetableEntry>,
-    val shouldPersist: Boolean,
-    val warningMessage: String? = null,
-)
-
-data class PayloadValidation(
-    val valid: Boolean,
-    val entryCount: Int,
-)
 
 object TimetableRepository {
     private const val STORAGE_FILE_NAME = "timetable_entries.json"
-    private const val SHARE_PAYLOAD_VERSION = 1
-    private val mutex = Mutex()
 
-    private fun getStorageFile(context: Context): File = File(context.filesDir, STORAGE_FILE_NAME)
+    private fun getLegacyStorageFile(context: Context): File = File(context.filesDir, STORAGE_FILE_NAME)
 
-    suspend fun loadEntries(context: Context): EntryLoadState = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val file = getStorageFile(context)
-            if (!file.exists()) {
-                return@withContext EntryLoadState(
-                    entries = sampleEntries(),
-                    shouldPersist = true,
-                )
+    /**
+     * 迁移与初始化函数：在 ViewModel 启动时调用一次。
+     * 检测是否存在旧版的 JSON 文件，如果存在则解析内容并持久化进入 SQLite Room。
+     * 迁移完毕后安全删除旧版 JSON。如果连 DB 也是空的则插入模板数据。
+     */
+    suspend fun ensureMigrated(context: Context) = withContext(Dispatchers.IO) {
+        val file = getLegacyStorageFile(context)
+        val dao = AppDatabase.getDatabase(context).timetableDao()
+        
+        if (!file.exists()) {
+            if (dao.getAllEntries().isEmpty()) {
+                dao.upsertEntries(sampleEntries())
             }
-
-            val payload = runCatching { file.readText() }.getOrElse {
-                val backup = backupCorruptedStorage(file)
-                return@withContext EntryLoadState(
-                    entries = emptyList(),
-                    shouldPersist = false,
-                    warningMessage = buildCorruptedStorageMessage(backup),
-                )
-            }
-
-            val structure = validateStoredPayload(payload)
-            if (!structure.valid) {
-                val backup = backupCorruptedStorage(file)
-                return@withContext EntryLoadState(
-                    entries = emptyList(),
-                    shouldPersist = false,
-                    warningMessage = buildCorruptedStorageMessage(backup),
-                )
-            }
-
-            val persisted = TimetableShareCodec.decode(payload)
-            if (structure.entryCount > 0 && persisted.isEmpty()) {
-                val backup = backupCorruptedStorage(file)
-                return@withContext EntryLoadState(
-                    entries = emptyList(),
-                    shouldPersist = false,
-                    warningMessage = buildCorruptedStorageMessage(backup),
-                )
-            }
-
-            return@withContext EntryLoadState(
-                entries = persisted,
-                shouldPersist = false,
-            )
-        }
-    }
-
-    suspend fun saveEntries(context: Context, entries: List<TimetableEntry>): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            mutex.withLock {
-                getStorageFile(context).writeText(TimetableShareCodec.encode(entries))
-            }
-        }
-    }
-
-    private fun validateStoredPayload(payload: String): PayloadValidation {
-        if (payload.isBlank()) {
-            return PayloadValidation(valid = false, entryCount = 0)
+            return@withContext
         }
 
-        val root = runCatching { JSONObject(payload) }.getOrNull()
-            ?: return PayloadValidation(valid = false, entryCount = 0)
-        if (root.optInt("version", -1) != SHARE_PAYLOAD_VERSION) {
-            return PayloadValidation(valid = false, entryCount = 0)
+        val payload = runCatching { file.readText() }.getOrDefault("")
+        val persisted = TimetableShareCodec.decode(payload)
+
+        if (persisted.isNotEmpty()) {
+            dao.upsertEntries(persisted)
+        } else {
+            if (dao.getAllEntries().isEmpty()) {
+                dao.upsertEntries(sampleEntries())
+            }
         }
-
-        val entries = root.optJSONArray("entries")
-            ?: return PayloadValidation(valid = false, entryCount = 0)
-        return PayloadValidation(valid = true, entryCount = entries.length())
+        
+        // 删除旧 JSON 缓存，此后均以 Room 数据库为源
+        file.delete()
     }
 
-    private fun backupCorruptedStorage(file: File): File? {
-        if (!file.exists()) return null
-        return runCatching {
-            val backup = File(file.parentFile, "timetable_entries.corrupt.${System.currentTimeMillis()}.json")
-            file.copyTo(backup, overwrite = true)
-            backup
-        }.getOrNull()
+    /**
+     * 获取数据库的实时响应流
+     */
+    fun getEntriesStream(context: Context): Flow<List<TimetableEntry>> {
+        return AppDatabase.getDatabase(context).timetableDao().getAllEntriesStream()
     }
 
-    private fun buildCorruptedStorageMessage(backupFile: File?): String {
-        val backupName = backupFile?.name ?: "timetable_entries.corrupt.json"
-        return "检测到本地课程数据异常，已保留备份：$backupName"
+    /**
+     * 一次性获取挂起查询（后台广播接收器接力时使用此接口读取）
+     */
+    suspend fun getEntriesNow(context: Context): List<TimetableEntry> {
+        return AppDatabase.getDatabase(context).timetableDao().getAllEntries()
+    }
+
+    suspend fun upsertEntry(context: Context, entry: TimetableEntry) = withContext(Dispatchers.IO) {
+        AppDatabase.getDatabase(context).timetableDao().upsertEntry(entry)
+    }
+
+    suspend fun deleteEntry(context: Context, entryId: String) = withContext(Dispatchers.IO) {
+        AppDatabase.getDatabase(context).timetableDao().deleteEntry(entryId)
+    }
+
+    /**
+     * 覆盖式替换所有的课表项，用于“导入 ICS 文件”动作
+     */
+    suspend fun replaceAllEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
+        val dao = AppDatabase.getDatabase(context).timetableDao()
+        dao.deleteAll()
+        dao.upsertEntries(entries)
     }
 }

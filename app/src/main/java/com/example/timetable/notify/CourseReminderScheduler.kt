@@ -106,10 +106,9 @@ object CourseReminderScheduler {
     fun reminderMinuteOptions(): List<Int> = reminderOptions
 
     fun resyncFromStorage(context: Context) {
-        // 使用 Repository 的 Mutex 读取，彻底解决并发读写碰撞的问题
         kotlinx.coroutines.runBlocking {
-            val loadState = com.example.timetable.data.TimetableRepository.loadEntries(context)
-            sync(context, loadState.entries)
+            val entries = com.example.timetable.data.TimetableRepository.getEntriesNow(context)
+            sync(context, entries)
         }
     }
 
