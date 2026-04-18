@@ -2,6 +2,28 @@
 
 This repository now uses a single release flow.
 
+## Backup Workflow
+
+If you want every normal code submission to keep the previous version on GitHub, use the backup script from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-and-push.ps1 -Message "Your commit message"
+```
+
+What it does:
+
+- Creates an annotated backup tag for the current `HEAD`
+- Pushes that backup tag to GitHub first
+- Stages all local changes
+- Commits the new change
+- Pushes `main`
+
+Backup tags are named like:
+
+- `backup-20260418-231500-81fb666`
+
+That means each time you use this script, the old version is preserved on GitHub before the new commit moves `main`.
+
 ## Rules
 
 - Version tags use `v1.0`, `v1.1`, `v1.2` in order.
