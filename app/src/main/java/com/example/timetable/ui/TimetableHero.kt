@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,66 +75,83 @@ fun HeroSection(
 ) {
     var showReminderSheet by remember { mutableStateOf(false) }
     var showBackgroundDialog by remember { mutableStateOf(false) }
+    val hasGlobalBackground = LocalGlobalBackgroundEnabled.current
 
     // 主 Hero 卡片——渐变背景
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.85f),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = if (hasGlobalBackground) appSurfaceColor().copy(alpha = 0.42f) else Color.Transparent,
+        border = BorderStroke(1.dp, appOutlineColor()),
+        tonalElevation = if (hasGlobalBackground) 0.dp else 2.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = if (hasGlobalBackground) {
+                            listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.48f),
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.34f),
+                            )
+                        } else {
+                            listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.85f),
+                            )
+                        }
                     )
                 )
-            )
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            // 标题行
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "课程表助手",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-                Text(
-                    text = "当前共 $courseCount 门课程 · 支持 .ics 导入 / 导出",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
-                )
-            }
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                // 标题行
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "课程表助手",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Text(
+                        text = "当前共 $courseCount 门课程 · 支持 .ics 导入 / 导出",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                    )
+                }
 
-            // 四个操作按钮横向排布
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                HeroActionChip(
-                    icon = Icons.Default.Download,
-                    label = "导入",
-                    onClick = onImport,
-                    modifier = Modifier.weight(1f),
-                )
-                HeroActionChip(
-                    icon = Icons.Default.Upload,
-                    label = "导出",
-                    onClick = onExport,
-                    modifier = Modifier.weight(1f),
-                )
-                HeroActionChip(
-                    icon = Icons.Default.NotificationsActive,
-                    label = "提醒 ${reminderMinutes}m",
-                    onClick = { showReminderSheet = true },
-                    modifier = Modifier.weight(1f),
-                )
-                HeroActionChip(
-                    icon = Icons.Default.Image,
-                    label = if (hasCustomBackground) "换背景" else "背景图",
-                    onClick = { showBackgroundDialog = true },
-                    modifier = Modifier.weight(1f),
-                )
+                // 四个操作按钮横向排布
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    HeroActionChip(
+                        icon = Icons.Default.Download,
+                        label = "导入",
+                        onClick = onImport,
+                        modifier = Modifier.weight(1f),
+                    )
+                    HeroActionChip(
+                        icon = Icons.Default.Upload,
+                        label = "导出",
+                        onClick = onExport,
+                        modifier = Modifier.weight(1f),
+                    )
+                    HeroActionChip(
+                        icon = Icons.Default.NotificationsActive,
+                        label = "提醒 ${reminderMinutes}m",
+                        onClick = { showReminderSheet = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    HeroActionChip(
+                        icon = Icons.Default.Image,
+                        label = if (hasCustomBackground) "换全局背景" else "全局背景",
+                        onClick = { showBackgroundDialog = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -180,11 +199,17 @@ private fun HeroActionChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val chipColor = if (LocalGlobalBackgroundEnabled.current) {
+        MaterialTheme.colorScheme.scrim.copy(alpha = 0.22f)
+    } else {
+        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f)
+    }
+
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
+        color = chipColor,
         shape = RoundedCornerShape(14.dp),
     ) {
         Column(
@@ -227,21 +252,21 @@ private fun BackgroundImageDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("自定义背景图", style = MaterialTheme.typography.titleMedium)
+            Text("设置全局背景", style = MaterialTheme.typography.titleMedium)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "从图片文件中选择一张背景图，课程卡片和文字会自动加遮罩保持可读。",
+                    text = "选择一张图片作为整个应用的全局背景。界面卡片会自动变成半透明材质，保证内容可读。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Button(onClick = onImportBackground) {
-                    Text(if (hasCustomBackground) "更换背景图" else "导入背景图")
+                    Text(if (hasCustomBackground) "更换全局背景" else "选择全局背景")
                 }
                 if (hasCustomBackground) {
                     OutlinedButton(onClick = onClearBackground) {
-                        Text("恢复默认背景")
+                        Text("恢复默认全局背景")
                     }
                 }
             }

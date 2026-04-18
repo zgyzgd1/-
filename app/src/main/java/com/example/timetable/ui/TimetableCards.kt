@@ -3,6 +3,7 @@ package com.example.timetable.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,10 +60,10 @@ fun EntryCard(
 ) {
     val accent = remember(entry.title) { accentColorFor(entry.title) }
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    LiquidGlassPane(
+        shape = RoundedCornerShape(28.dp),
+        tint = appSurfaceColor(),
+        accent = accent,
         modifier = Modifier.animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
     ) {
         Row(
@@ -72,15 +74,22 @@ fun EntryCard(
             // 左侧彩色强调条
             Box(
                 modifier = Modifier
-                    .width(5.dp)
+                    .width(7.dp)
                     .fillMaxHeight()
-                    .background(accent),
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                accent.copy(alpha = 0.98f),
+                                accent.copy(alpha = 0.72f),
+                            )
+                        )
+                    ),
             )
 
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 16.dp),
+                    .padding(start = 18.dp, end = 10.dp, top = 18.dp, bottom = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -103,28 +112,39 @@ fun EntryCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AccessTime,
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = accent,
-                        )
-                        Text(
-                            text = "${formatMinutes(entry.startMinutes)} – ${formatMinutes(entry.endMinutes)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // 星期标签胶囊
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(accent.copy(alpha = 0.12f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        Surface(
+                            color = Color.White.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccessTime,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = accent,
+                                )
+                                Text(
+                                    text = "${formatMinutes(entry.startMinutes)} – ${formatMinutes(entry.endMinutes)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            color = accent.copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, accent.copy(alpha = 0.20f)),
                         ) {
                             Text(
                                 text = dayLabel(entry.dayOfWeek),
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = accent,
                             )
                         }
@@ -180,7 +200,13 @@ fun EntryCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .size(38.dp),
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "编辑",
@@ -188,7 +214,13 @@ fun EntryCard(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .size(38.dp),
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "删除",
@@ -208,12 +240,10 @@ fun EntryCard(
  */
 @Composable
 fun EmptyStateCard(onAdd: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    LiquidGlassPane(
+        shape = RoundedCornerShape(30.dp),
+        tint = appSurfaceVariantColor(alphaWhenWallpaper = 0.48f),
+        accent = MaterialTheme.colorScheme.tertiary,
     ) {
         Column(
             modifier = Modifier

@@ -3,9 +3,21 @@ package com.example.timetable.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -13,12 +25,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -32,11 +52,7 @@ import java.util.Locale
 
 /**
  * 轻量级水平周日历选择器
- * 使用 LazyRow 替代全月网格，大幅降低渲染开销
- *
- * @param selectedDate 当前选中的日期（yyyy-MM-dd）
- * @param entries 所有课程，用于渲染小圆点提示
- * @param onDateChanged 日期切换回调
+ * 使用带玻璃质感的日期卡，让整体视觉更接近液态玻璃风格。
  */
 @Composable
 fun PerpetualCalendar(
@@ -47,10 +63,8 @@ fun PerpetualCalendar(
     val today = LocalDate.now()
     val selected = parseEntryDate(selectedDate) ?: today
 
-    // 以选中日期所在月份为基准显示月份文字
     var visibleMonth by remember { mutableStateOf(YearMonth.from(selected)) }
 
-    // 跨月切换时自动同步（不覆盖用户手动翻页）
     LaunchedEffect(selected) {
         val selectedMonth = YearMonth.from(selected)
         if (selectedMonth != visibleMonth) {
@@ -58,18 +72,14 @@ fun PerpetualCalendar(
         }
     }
 
-    // 预生成当前月所有日期
     val daysInMonth = remember(visibleMonth) {
         val start = visibleMonth.atDay(1)
         val len = visibleMonth.lengthOfMonth()
         (0 until len).map { start.plusDays(it.toLong()) }
     }
-
     val entriesByDate = remember(entries) { entries.groupingBy { it.date }.eachCount() }
-
     val listState = rememberLazyListState()
 
-    // 当选中日期改变时自动滚动到对应位置
     LaunchedEffect(selected, daysInMonth) {
         val idx = daysInMonth.indexOfFirst { it == selected }
         if (idx >= 0) {
@@ -77,18 +87,17 @@ fun PerpetualCalendar(
         }
     }
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    LiquidGlassPane(
+        shape = RoundedCornerShape(26.dp),
+        tint = appSurfaceColor(),
+        accent = MaterialTheme.colorScheme.primary,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 月份切换行
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -98,10 +107,10 @@ fun PerpetualCalendar(
             ) {
                 IconButton(
                     onClick = { visibleMonth = visibleMonth.minusMonths(1) },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(34.dp),
                 ) {
                     Icon(
-                        Icons.Default.ChevronLeft,
+                        imageVector = Icons.Default.ChevronLeft,
                         contentDescription = "上月",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -113,21 +122,20 @@ fun PerpetualCalendar(
                 )
                 IconButton(
                     onClick = { visibleMonth = visibleMonth.plusMonths(1) },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(34.dp),
                 ) {
                     Icon(
-                        Icons.Default.ChevronRight,
+                        imageVector = Icons.Default.ChevronRight,
                         contentDescription = "下月",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            // 水平滚动日期行
             LazyRow(
                 state = listState,
                 contentPadding = PaddingValues(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(daysInMonth.size, key = { daysInMonth[it].toEpochDay() }) { idx ->
                     val date = daysInMonth[idx]
@@ -135,14 +143,14 @@ fun PerpetualCalendar(
                     val isToday = date == today
                     val hasCourse = (entriesByDate[date.toString()] ?: 0) > 0
 
-                    val bgColor by animateColorAsState(
+                    val glassTint by animateColorAsState(
                         targetValue = when {
                             isSelected -> MaterialTheme.colorScheme.primary
                             isToday -> MaterialTheme.colorScheme.primaryContainer
-                            else -> Color.Transparent
+                            else -> MaterialTheme.colorScheme.surface
                         },
                         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label = "dateBg",
+                        label = "glassTint",
                     )
                     val textColor by animateColorAsState(
                         targetValue = when {
@@ -154,50 +162,116 @@ fun PerpetualCalendar(
                         label = "dateText",
                     )
                     val subTextColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        targetValue = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.80f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                         label = "subText",
                     )
+                    val accentColor by animateColorAsState(
+                        targetValue = when {
+                            isSelected -> MaterialTheme.colorScheme.primary
+                            isToday -> MaterialTheme.colorScheme.primaryContainer
+                            else -> MaterialTheme.colorScheme.tertiary
+                        },
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "accentColor",
+                    )
 
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .width(46.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(bgColor)
-                            .clickable { onDateChanged(date.toString()) }
-                            .padding(vertical = 10.dp, horizontal = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                            .width(54.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable { onDateChanged(date.toString()) },
                     ) {
-                        // 星期缩写
-                        Text(
-                            text = date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.CHINESE),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = subTextColor,
-                            textAlign = TextAlign.Center,
-                        )
-                        // 日期数字
-                        Text(
-                            text = date.dayOfMonth.toString(),
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-                            ),
-                            color = textColor,
-                            textAlign = TextAlign.Center,
-                        )
-                        // 有课指示小点
                         Box(
                             modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(22.dp))
                                 .background(
-                                    if (hasCourse) {
-                                        if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.primary
-                                    } else Color.Transparent
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            glassTint.copy(alpha = if (isSelected) 0.44f else 0.24f),
+                                            glassTint.copy(alpha = if (isSelected) 0.22f else 0.10f),
+                                        )
+                                    )
                                 ),
                         )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            accentColor.copy(alpha = if (isSelected) 0.24f else 0.12f),
+                                            Color.Transparent,
+                                        )
+                                    )
+                                ),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(22.dp))
+                                .border(
+                                    BorderStroke(
+                                        1.dp,
+                                        if (isSelected) Color.White.copy(alpha = 0.34f)
+                                        else Color.White.copy(alpha = 0.18f),
+                                    )
+                                ),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth(0.7f)
+                                .height(16.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.20f),
+                                            Color.Transparent,
+                                        )
+                                    )
+                                ),
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.CHINESE),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = subTextColor,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = date.dayOfMonth.toString(),
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                                ),
+                                color = textColor,
+                                textAlign = TextAlign.Center,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (hasCourse) {
+                                            if (isSelected) MaterialTheme.colorScheme.onPrimary else accentColor
+                                        } else {
+                                            Color.Transparent
+                                        }
+                                    ),
+                            )
+                        }
                     }
                 }
             }
