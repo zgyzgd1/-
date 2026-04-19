@@ -146,21 +146,21 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
-                LargeTopAppBar(
-                    title = {
-                        Text(
-                            text = if (isWeekMode) "周视图" else "我的课表",
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = MaterialTheme.colorScheme.background.copy(
-                            alpha = if (isWeekMode) 0.62f else 0.88f,
+                if (!isWeekMode) {
+                    LargeTopAppBar(
+                        title = {
+                            Text(
+                                text = "我的课表",
+                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                            )
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.88f),
+                            titleContentColor = MaterialTheme.colorScheme.onBackground,
                         ),
-                        titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    ),
-                )
+                    )
+                }
             },
             floatingActionButton = {
                 FloatingActionButton(
@@ -208,7 +208,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                             )
                         }
                         .padding(padding)
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .padding(horizontal = 0.dp, vertical = 0.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
                     WeekScheduleBoard(
