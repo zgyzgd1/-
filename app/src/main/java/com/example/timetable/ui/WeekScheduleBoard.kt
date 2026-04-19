@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,9 +54,8 @@ fun WeekScheduleBoard(
     entries: List<TimetableEntry>,
     slots: List<WeekTimeSlot>,
     cardAlpha: Float,
-    hasCustomBackground: Boolean,
-    onImportBackground: () -> Unit,
-    onClearBackground: () -> Unit,
+    cardHue: Float,
+    onAddSlot: () -> Unit,
     onEntryClick: (TimetableEntry) -> Unit,
     onSlotClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -108,14 +107,9 @@ fun WeekScheduleBoard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 GlassActionChip(
-                    label = if (hasCustomBackground) "更换背景" else "设置背景",
-                    onClick = onImportBackground,
+                    label = "新增节次",
+                    onClick = onAddSlot,
                 )
-                if (hasCustomBackground) {
-                    OutlinedButton(onClick = onClearBackground) {
-                        Text("清除背景")
-                    }
-                }
             }
         }
 
@@ -222,7 +216,7 @@ fun WeekScheduleBoard(
                                             .height(slotHeight * placement.slotSpan - 12.dp)
                                             .fillMaxWidth(),
                                         entry = entry,
-                                        color = color.copy(alpha = cardAlpha),
+                                        color = colorWithHueShift(color, cardHue).copy(alpha = cardAlpha),
                                         onClick = { onEntryClick(entry) },
                                     )
                                 }
@@ -333,4 +327,11 @@ private fun formatWeekRange(start: LocalDate, end: LocalDate): String {
     } else {
         "%d/%d - %d/%d".format(start.monthValue, start.dayOfMonth, end.monthValue, end.dayOfMonth)
     }
+}
+
+internal fun colorWithHueShift(base: Color, hueShift: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(base.toArgb(), hsv)
+    hsv[0] = (hsv[0] + hueShift) % 360f
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }

@@ -1,32 +1,37 @@
 package com.example.timetable.ui
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.example.timetable.data.*
+import com.example.timetable.data.TimetableEntry
+import com.example.timetable.data.WeekTimeSlot
+import com.example.timetable.data.formatMinutes
+import com.example.timetable.data.parseEntryDate
+import com.example.timetable.data.parseMinutes
 
-
-/**
- * 课程编辑器对话框
- * 提供表单用于添加或编辑课程信息
- *
- * @param initial 初始课程数据
- * @param onDismiss 取消编辑回调
- * @param onSave 保存课程回调
- */
 @Composable
 fun EntryEditorDialog(
     initial: TimetableEntry,
     onDismiss: () -> Unit,
     onSave: (TimetableEntry) -> Unit,
 ) {
-    // 表单字段状态
     var title by rememberSaveable(initial.id) { mutableStateOf(initial.title) }
     var dateText by rememberSaveable(initial.id) { mutableStateOf(initial.date) }
     var startTime by rememberSaveable(initial.id) { mutableStateOf(formatMinutes(initial.startMinutes)) }
@@ -35,12 +40,11 @@ fun EntryEditorDialog(
     var note by rememberSaveable(initial.id) { mutableStateOf(initial.note) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
-    androidx.compose.material3.AlertDialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial.title.isBlank()) "新增课程" else "编辑课程") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // 课程名称输入框
                 AppTextField(
                     value = title,
                     onValueChange = {
@@ -50,7 +54,6 @@ fun EntryEditorDialog(
                     label = "课程名称",
                     singleLine = true,
                 )
-                // 日期输入
                 AppTextField(
                     value = dateText,
                     onValueChange = {
@@ -61,7 +64,6 @@ fun EntryEditorDialog(
                     placeholder = "2026-09-01",
                     singleLine = true,
                 )
-                // 开始和结束时间输入
                 TimeRangeFields(
                     startTime = startTime,
                     endTime = endTime,
@@ -74,52 +76,51 @@ fun EntryEditorDialog(
                         errorText = null
                     },
                 )
-                // 地点输入框
                 AppTextField(
                     value = location,
                     onValueChange = { location = it },
                     label = "地点",
                     singleLine = true,
                 )
-                // 备注输入框
                 AppTextField(
                     value = note,
                     onValueChange = { note = it },
                     label = "备注",
                     minLines = 2,
                 )
-                // 错误提示文本
                 errorText?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
             }
         },
         confirmButton = {
-            Button(onClick = {
-                val parsedStart = parseMinutes(startTime)
-                val parsedEnd = parseMinutes(endTime)
-                val parsedDate = parseEntryDate(dateText)
-                when {
-                    title.trim().isBlank() -> errorText = "请输入课程名称"
-                    title.trim().length > 64 -> errorText = "课程名称不能超过 64 字"
-                    parsedDate == null -> errorText = "请输入合法日期，范围 1970-01-01 到 2100-12-31"
-                    parsedStart == null || parsedEnd == null -> errorText = "请输入合法时间，例如 08:00"
-                    parsedStart >= parsedEnd -> errorText = "结束时间需要晚于开始时间"
-                    location.trim().length > 64 -> errorText = "地点不能超过 64 字"
-                    note.trim().length > 256 -> errorText = "备注不能超过 256 字"
-                    else -> onSave(
-                        initial.copy(
-                            title = title.trim(),
-                            date = parsedDate.toString(),
-                            dayOfWeek = parsedDate.dayOfWeek.value,
-                            startMinutes = parsedStart,
-                            endMinutes = parsedEnd,
-                            location = location.trim(),
-                            note = note.trim(),
+            Button(
+                onClick = {
+                    val parsedStart = parseMinutes(startTime)
+                    val parsedEnd = parseMinutes(endTime)
+                    val parsedDate = parseEntryDate(dateText)
+                    when {
+                        title.trim().isBlank() -> errorText = "请输入课程名称"
+                        title.trim().length > 64 -> errorText = "课程名称不能超过 64 个字符"
+                        parsedDate == null -> errorText = "请输入合法日期，范围 1970-01-01 到 2100-12-31"
+                        parsedStart == null || parsedEnd == null -> errorText = "请输入合法时间，例如 08:00"
+                        parsedStart >= parsedEnd -> errorText = "结束时间需要晚于开始时间"
+                        location.trim().length > 64 -> errorText = "地点不能超过 64 个字符"
+                        note.trim().length > 256 -> errorText = "备注不能超过 256 个字符"
+                        else -> onSave(
+                            initial.copy(
+                                title = title.trim(),
+                                date = parsedDate.toString(),
+                                dayOfWeek = parsedDate.dayOfWeek.value,
+                                startMinutes = parsedStart,
+                                endMinutes = parsedEnd,
+                                location = location.trim(),
+                                note = note.trim(),
+                            ),
                         )
-                    )
-                }
-            }) {
+                    }
+                },
+            ) {
                 Text("保存")
             }
         },
@@ -185,18 +186,19 @@ fun AppTextField(
 
 @Composable
 fun WeekSlotEditorDialog(
-    slotNumber: Int,
+    title: String,
     initial: WeekTimeSlot,
     onDismiss: () -> Unit,
     onSave: (WeekTimeSlot) -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
-    var startTime by rememberSaveable(slotNumber) { mutableStateOf(formatMinutes(initial.startMinutes)) }
-    var endTime by rememberSaveable(slotNumber) { mutableStateOf(formatMinutes(initial.endMinutes)) }
+    var startTime by rememberSaveable(title) { mutableStateOf(formatMinutes(initial.startMinutes)) }
+    var endTime by rememberSaveable(title) { mutableStateOf(formatMinutes(initial.endMinutes)) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑第 $slotNumber 节时间") },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TimeRangeFields(
@@ -236,8 +238,15 @@ fun WeekSlotEditorDialog(
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("取消")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                onDelete?.let {
+                    OutlinedButton(onClick = it) {
+                        Text("删除")
+                    }
+                }
+                OutlinedButton(onClick = onDismiss) {
+                    Text("取消")
+                }
             }
         },
     )

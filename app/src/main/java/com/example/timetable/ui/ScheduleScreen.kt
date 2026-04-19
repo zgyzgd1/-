@@ -1,7 +1,6 @@
 package com.example.timetable.ui
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.TimetableEntry
+import com.example.timetable.data.WeekTimeSlot
 import com.example.timetable.data.formatDateLabel
 import com.example.timetable.data.parseEntryDate
 import com.example.timetable.notify.CourseReminderScheduler
@@ -58,11 +58,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.launch
-
-private enum class BackgroundTarget {
-    Home,
-    Week,
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,11 +68,9 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
-    var backgroundImageUri by remember(context) { mutableStateOf(AppearanceStore.getBackgroundImageUri(context)) }
-    var weekBackgroundImageUri by remember(context) { mutableStateOf(AppearanceStore.getWeekBackgroundImageUri(context)) }
     var weekCardAlpha by remember(context) { mutableStateOf(AppearanceStore.getWeekCardAlpha(context)) }
+    var weekCardHue by remember(context) { mutableStateOf(AppearanceStore.getWeekCardHue(context)) }
     var weekTimeSlots by remember(context) { mutableStateOf(AppearanceStore.getWeekTimeSlots(context)) }
-    var backgroundTarget by remember { mutableStateOf(BackgroundTarget.Home) }
 
     val minDate = LocalDate.of(1970, 1, 1)
     val maxDate = LocalDate.of(2100, 12, 31)
@@ -93,6 +86,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
 
     var editingEntry by remember { mutableStateOf<TimetableEntry?>(null) }
     var editingWeekSlotIndex by remember { mutableStateOf<Int?>(null) }
+    var addingWeekSlot by remember { mutableStateOf(false) }
     var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
 
@@ -136,42 +130,6 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         }
     }
 
-    val backgroundImportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-                when (backgroundTarget) {
-                    BackgroundTarget.Home -> {
-                        AppearanceStore.setBackgroundImageUri(context, uri)
-                        backgroundImageUri = uri.toString()
-                    }
-                    BackgroundTarget.Week -> {
-                        AppearanceStore.setWeekBackgroundImageUri(context, uri)
-                        weekBackgroundImageUri = uri.toString()
-                    }
-                }
-            }.onSuccess {
-                scope.launch {
-                    snackbarHostState.showSnackbar(
-                        when (backgroundTarget) {
-                            BackgroundTarget.Home -> "已更新首页背景图"
-                            BackgroundTarget.Week -> "已更新周视图背景图"
-                        },
-                    )
-                }
-            }.onFailure {
-                scope.launch {
-                    snackbarHostState.showSnackbar("设置背景图失败：${it.message ?: "未知错误"}")
-                }
-            }
-        }
-    }
-
     val filteredEntries = remember(entries, selectedDate, isWeekMode, selectedWeekStart, selectedWeekEnd) {
         entries.filter { entry ->
             val entryDate = parseEntryDate(entry.date) ?: return@filter false
@@ -180,9 +138,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AppBackgroundLayer(
-            backgroundImageUri = if (isWeekMode) weekBackgroundImageUri ?: backgroundImageUri else backgroundImageUri,
-        )
+        AppBackgroundLayer()
 
         Scaffold(
             modifier = Modifier.safeDrawingPadding(),
@@ -234,9 +190,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         .pointerInput(selectedDate, isWeekMode) {
                             var totalHorizontalDrag = 0f
                             detectHorizontalDragGestures(
-                                onHorizontalDrag = { _, dragAmount ->
-                                    totalHorizontalDrag += dragAmount
-                                },
+                                onHorizontalDrag = { _, dragAmount -> totalHorizontalDrag += dragAmount },
                                 onDragEnd = {
                                     when {
                                         totalHorizontalDrag > 80f -> {
@@ -263,16 +217,8 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         entries = filteredEntries,
                         slots = weekTimeSlots,
                         cardAlpha = weekCardAlpha,
-                        hasCustomBackground = weekBackgroundImageUri != null,
-                        onImportBackground = {
-                            backgroundTarget = BackgroundTarget.Week
-                            backgroundImportLauncher.launch(arrayOf("image/*"))
-                        },
-                        onClearBackground = {
-                            AppearanceStore.clearWeekBackgroundImage(context)
-                            weekBackgroundImageUri = null
-                            scope.launch { snackbarHostState.showSnackbar("已恢复默认周视图背景") }
-                        },
+                        cardHue = weekCardHue,
+                        onAddSlot = { addingWeekSlot = true },
                         onEntryClick = { editingEntry = it },
                         onSlotClick = { editingWeekSlotIndex = it },
                     )
@@ -284,9 +230,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         .pointerInput(selectedDate, isWeekMode) {
                             var totalHorizontalDrag = 0f
                             detectHorizontalDragGestures(
-                                onHorizontalDrag = { _, dragAmount ->
-                                    totalHorizontalDrag += dragAmount
-                                },
+                                onHorizontalDrag = { _, dragAmount -> totalHorizontalDrag += dragAmount },
                                 onDragEnd = {
                                     when {
                                         totalHorizontalDrag > 80f -> {
@@ -342,9 +286,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                                                 snackbarHostState.showSnackbar("通知权限已开启")
                                             }
                                         }
-                                        else -> {
-                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        }
+                                        else -> notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                     }
                                 },
                                 reminderMinutes = reminderMinutes,
@@ -353,20 +295,15 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                                     reminderMinutes = minutes
                                     viewModel.updateReminderMinutes(minutes)
                                 },
-                                hasCustomBackground = backgroundImageUri != null,
-                                onImportBackground = {
-                                    backgroundTarget = BackgroundTarget.Home
-                                    backgroundImportLauncher.launch(arrayOf("image/*"))
-                                },
-                                onClearBackground = {
-                                    AppearanceStore.clearBackgroundImage(context)
-                                    backgroundImageUri = null
-                                    scope.launch { snackbarHostState.showSnackbar("已恢复默认首页背景") }
-                                },
                                 weekCardAlpha = weekCardAlpha,
                                 onWeekCardAlphaChange = { alpha ->
                                     weekCardAlpha = alpha
                                     AppearanceStore.setWeekCardAlpha(context, alpha)
+                                },
+                                weekCardHue = weekCardHue,
+                                onWeekCardHueChange = { hue ->
+                                    weekCardHue = hue
+                                    AppearanceStore.setWeekCardHue(context, hue)
                                 },
                             )
                         }
@@ -424,7 +361,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     editingWeekSlotIndex?.let { index ->
         val currentSlot = weekTimeSlots.getOrNull(index) ?: return@let
         WeekSlotEditorDialog(
-            slotNumber = index + 1,
+            title = "编辑第 ${index + 1} 节时间",
             initial = currentSlot,
             onDismiss = { editingWeekSlotIndex = null },
             onSave = { updatedSlot ->
@@ -435,6 +372,40 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                 AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingWeekSlotIndex = null
             },
+            onDelete = if (weekTimeSlots.size > 1) {
+                {
+                    val updatedSlots = weekTimeSlots.toMutableList().apply { removeAt(index) }
+                    weekTimeSlots = updatedSlots
+                    AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                    editingWeekSlotIndex = null
+                    scope.launch { snackbarHostState.showSnackbar("已删除第 ${index + 1} 节") }
+                }
+            } else {
+                null
+            },
         )
     }
+
+    if (addingWeekSlot) {
+        WeekSlotEditorDialog(
+            title = "新增节次",
+            initial = defaultNewWeekSlot(weekTimeSlots),
+            onDismiss = { addingWeekSlot = false },
+            onSave = { newSlot ->
+                val updatedSlots = (weekTimeSlots + newSlot).sortedBy { it.startMinutes }
+                weekTimeSlots = updatedSlots
+                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                addingWeekSlot = false
+                scope.launch { snackbarHostState.showSnackbar("已新增第 ${updatedSlots.indexOf(newSlot) + 1} 节") }
+            },
+        )
+    }
+}
+
+private fun defaultNewWeekSlot(slots: List<WeekTimeSlot>): WeekTimeSlot {
+    val lastSlot = slots.maxByOrNull { it.endMinutes }
+    if (lastSlot == null) return WeekTimeSlot(8 * 60, 8 * 60 + 45)
+    val start = (lastSlot.endMinutes + 10).coerceAtMost(23 * 60)
+    val end = (start + 45).coerceAtMost(24 * 60)
+    return if (start < end) WeekTimeSlot(start, end) else WeekTimeSlot(23 * 60, 23 * 60 + 30)
 }
