@@ -1,5 +1,6 @@
 package com.example.timetable.data
 
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,5 +42,45 @@ class IcsCalendarTest {
         val text = IcsCalendar.write(listOf(entry))
 
         assertTrue(text.contains("DTSTAMP:"))
+    }
+
+    @Test
+    fun writeSupportsEntriesEndingAtMidnight() {
+        val entry = TimetableEntry(
+            id = "entry-midnight",
+            title = "晚课",
+            date = "2026-04-15",
+            dayOfWeek = 3,
+            startMinutes = 23 * 60,
+            endMinutes = 24 * 60,
+        )
+
+        val text = IcsCalendar.write(listOf(entry))
+
+        assertTrue(
+            text.contains("DTEND;TZID=${ZoneId.systemDefault().id}:20260416T000000"),
+        )
+    }
+
+    @Test
+    fun parseWeeklyRRuleSortsByDayBeforeApplyingUntil() {
+        val content = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            PRODID:-//Test//CN
+            BEGIN:VEVENT
+            UID:test-ordered
+            SUMMARY:Algorithms
+            DTSTART;TZID=Asia/Shanghai:20260413T080000
+            DTEND;TZID=Asia/Shanghai:20260413T090000
+            RRULE:FREQ=WEEKLY;UNTIL=20260414T235959;BYDAY=WE,MO
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        val parsed = IcsCalendar.parse(content)
+
+        assertEquals(1, parsed.size)
+        assertEquals("2026-04-13", parsed.single().date)
     }
 }

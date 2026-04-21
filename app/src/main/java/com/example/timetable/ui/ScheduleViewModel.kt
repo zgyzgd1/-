@@ -10,7 +10,9 @@ import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.TimetableRepository
 import com.example.timetable.data.formatMinutes
 import com.example.timetable.notify.CourseReminderScheduler
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +20,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
 class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -48,6 +51,10 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     private val _messages = MutableSharedFlow<String>()
     val messages = _messages.asSharedFlow()
 
+    private val reminderSyncMutex = Mutex()
+    private var reminderSyncGeneration = 0L
+    private var reminderSyncJob: Job? = null
+
     init {
         viewModelScope.launch {
             TimetableRepository.ensureMigrated(getApplication())
@@ -74,7 +81,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
                 postMessage("已保存课程")
             } else {
                 postMessage(
-                    "已保存课程（与 ${conflict.title} ${formatMinutes(conflict.startMinutes)}-${formatMinutes(conflict.endMinutes)} 时间重叠）",
+                    "已保存课程，但与 ${conflict.title} ${formatMinutes(conflict.startMinutes)}-${formatMinutes(conflict.endMinutes)} 时间重叠",
                 )
             }
         }
@@ -87,7 +94,9 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun exportIcs(): String = IcsCalendar.write(entries.value)
+    suspend fun exportIcs(): String = withContext(Dispatchers.Default) {
+        IcsCalendar.write(entries.value)
+    }
 
     fun importFromIcs(contentResolver: ContentResolver, uri: Uri) {
         viewModelScope.launch {
@@ -97,9 +106,14 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            val imported = runCatching { IcsCalendar.parse(text) }
-                .onFailure { postMessage("导入失败：${it.message ?: "日历格式异常"}") }
-                .getOrDefault(emptyList())
+            val imported = try {
+                withContext(Dispatchers.Default) {
+                    IcsCalendar.parse(text)
+                }
+            } catch (error: Exception) {
+                postMessage("导入失败：${error.message ?: "日历格式异常"}")
+                emptyList()
+            }
             if (imported.isEmpty()) {
                 postMessage("未识别到可导入的课程")
                 return@launch
@@ -205,8 +219,13 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun syncReminders(entriesList: List<TimetableEntry>) {
-        viewModelScope.launch(Dispatchers.Default) {
-            CourseReminderScheduler.sync(getApplication(), entriesList)
+        val generation = ++reminderSyncGeneration
+        reminderSyncJob?.cancel()
+        reminderSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            reminderSyncMutex.withLock {
+                if (generation != reminderSyncGeneration) return@launch
+                CourseReminderScheduler.sync(getApplication(), entriesList)
+            }
         }
     }
 

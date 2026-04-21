@@ -1,6 +1,41 @@
 # Release Process
 
-This repository now uses a single release flow.
+This repository now supports two flows:
+
+- normal backup + code push
+- backup + code push + GitHub release + APK archive
+
+## Unified Push Workflow
+
+If you want the full flow that you described for future "push GitHub" requests, use:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push-github.ps1 -Message "Your commit message"
+```
+
+What it does in order:
+
+- creates and pushes an annotated backup tag for the current `HEAD`
+- stages and commits all current code changes
+- rebases onto the latest `origin/main` when needed, then pushes `main`
+- runs the release workflow
+- increments app version in `gradle.properties`
+- runs `testDebugUnitTest` unless `-SkipTests` is used
+- builds `assembleRelease`
+- uploads the APK to the GitHub release
+- copies the same APK into `apk-archive-repo/releases`
+- updates `apk-archive-repo/README.md`
+- commits and pushes the APK archive repository
+
+Optional flags:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push-github.ps1 -Message "Your commit message" -Version 1.12
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push-github.ps1 -Message "Your commit message" -SkipTests
+```
 
 ## Backup Workflow
 

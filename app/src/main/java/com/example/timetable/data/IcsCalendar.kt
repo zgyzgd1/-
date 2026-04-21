@@ -52,7 +52,11 @@ object IcsCalendar {
                 // 计算课程的具体日期和时间
                 val eventDate = LocalDate.parse(entry.date)
                 val start = eventDate.atTime(entry.startMinutes / 60, entry.startMinutes % 60)
-                val end = eventDate.atTime(entry.endMinutes / 60, entry.endMinutes % 60)
+                val end = if (entry.endMinutes == 24 * 60) {
+                    eventDate.plusDays(1).atStartOfDay()
+                } else {
+                    eventDate.atTime(entry.endMinutes / 60, entry.endMinutes % 60)
+                }
 
                 // 写入事件详情
                 builder.appendLine("BEGIN:VEVENT")
@@ -190,6 +194,7 @@ object IcsCalendar {
         if (rrule.freq == "WEEKLY" && rrule.byDays.isNotEmpty()) {
             var weekAnchor = start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             var emitted = 0
+            var reachedUntil = false
 
             while (
                 emitted < MAX_EXPANDED_OCCURRENCES &&
@@ -202,7 +207,8 @@ object IcsCalendar {
                     val occurrenceStart = LocalDateTime.of(occurrenceDate, start.toLocalTime())
                     if (occurrenceStart.isBefore(start)) continue
                     if (rrule.until != null && occurrenceStart.isAfter(rrule.until)) {
-                        return result
+                        reachedUntil = true
+                        break
                     }
                     if (normalizeMinute(occurrenceStart) in exDates) continue
 
@@ -220,6 +226,7 @@ object IcsCalendar {
                     }
                 }
 
+                if (reachedUntil) break
                 weekAnchor = weekAnchor.plusWeeks(interval.toLong())
                 val nextWeekFirstStart = LocalDateTime.of(weekAnchor, start.toLocalTime())
                 if (rrule.until != null && nextWeekFirstStart.isAfter(rrule.until)) break
@@ -320,6 +327,7 @@ object IcsCalendar {
             ?.split(',')
             ?.mapNotNull(::parseByDay)
             ?.distinct()
+            ?.sortedBy { it.value }
             .orEmpty()
         return RecurrenceRule(freq = freq, interval = interval, until = until, count = count, byDays = byDays)
     }

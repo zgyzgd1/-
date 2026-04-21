@@ -65,6 +65,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val DEFAULT_WEEK_SLOT_START_MINUTES = 8 * 60
+private const val DEFAULT_WEEK_SLOT_DURATION_MINUTES = 40
+private const val DEFAULT_WEEK_SLOT_GAP_MINUTES = 5
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
@@ -94,7 +98,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
 
     var editingEntry by remember { mutableStateOf<TimetableEntry?>(null) }
     var editingWeekSlotIndex by remember { mutableStateOf<Int?>(null) }
-    var addingWeekSlot by remember { mutableStateOf(false) }
+    var addingWeekSlotInitial by remember { mutableStateOf<WeekTimeSlot?>(null) }
     var editingWeekSlotCount by remember { mutableStateOf(false) }
     var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
@@ -126,14 +130,14 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                runCatching {
+                try {
                     val text = viewModel.exportIcs()
                     context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { writer ->
                         writer.write(text)
                     }
                     snackbarHostState.showSnackbar("已导出日历文件")
-                }.onFailure {
-                    snackbarHostState.showSnackbar("导出失败：${it.message ?: "未知错误"}")
+                } catch (error: Exception) {
+                    snackbarHostState.showSnackbar("导出失败：${error.message ?: "未知错误"}")
                 }
             }
         }
@@ -269,7 +273,16 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                             slots = weekTimeSlots,
                             cardAlpha = weekCardAlpha,
                             cardHue = weekCardHue,
-                            onAddSlot = { addingWeekSlot = true },
+                            onAddSlot = {
+                                val nextSlot = defaultNewWeekSlot(weekTimeSlots)
+                                if (nextSlot == null) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("当天已没有可新增的完整节次")
+                                    }
+                                } else {
+                                    addingWeekSlotInitial = nextSlot
+                                }
+                            },
                             onCustomizeSlotCount = { editingWeekSlotCount = true },
                             onEntryClick = { editingEntry = it },
                             onSlotClick = { editingWeekSlotIndex = it },
@@ -462,16 +475,16 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         )
     }
 
-    if (addingWeekSlot) {
+    addingWeekSlotInitial?.let { initialSlot ->
         WeekSlotEditorDialog(
             title = "新增节次",
-            initial = defaultNewWeekSlot(weekTimeSlots),
-            onDismiss = { addingWeekSlot = false },
+            initial = initialSlot,
+            onDismiss = { addingWeekSlotInitial = null },
             onSave = { newSlot ->
                 val updatedSlots = (weekTimeSlots + newSlot).sortedBy { it.startMinutes }
                 weekTimeSlots = updatedSlots
                 AppearanceStore.setWeekTimeSlots(context, updatedSlots)
-                addingWeekSlot = false
+                addingWeekSlotInitial = null
                 scope.launch { snackbarHostState.showSnackbar("已新增第 ${updatedSlots.indexOf(newSlot) + 1} 节") }
             },
         )
@@ -486,19 +499,31 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                 weekTimeSlots = updatedSlots
                 AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingWeekSlotCount = false
-                scope.launch { snackbarHostState.showSnackbar("已调整为 $count 节") }
+                scope.launch {
+                    val message = if (updatedSlots.size == count) {
+                        "已调整为 $count 节"
+                    } else {
+                        "只能扩展到 ${updatedSlots.size} 节，后续时间不足"
+                    }
+                    snackbarHostState.showSnackbar(message)
+                }
             },
         )
     }
 }
 
-private fun defaultNewWeekSlot(slots: List<WeekTimeSlot>): WeekTimeSlot {
+internal fun defaultNewWeekSlot(slots: List<WeekTimeSlot>): WeekTimeSlot? {
     val lastSlot = slots.maxByOrNull { it.endMinutes }
-    if (lastSlot == null) return WeekTimeSlot(8 * 60, 8 * 60 + 40)
+    if (lastSlot == null) {
+        return WeekTimeSlot(
+            startMinutes = DEFAULT_WEEK_SLOT_START_MINUTES,
+            endMinutes = DEFAULT_WEEK_SLOT_START_MINUTES + DEFAULT_WEEK_SLOT_DURATION_MINUTES,
+        )
+    }
     return nextWeekTimeSlot(lastSlot)
 }
 
-private fun resizeWeekTimeSlots(slots: List<WeekTimeSlot>, targetCount: Int): List<WeekTimeSlot> {
+internal fun resizeWeekTimeSlots(slots: List<WeekTimeSlot>, targetCount: Int): List<WeekTimeSlot> {
     if (targetCount <= 0) return slots
     if (slots.size == targetCount) return slots.sortedBy { it.startMinutes }
     if (slots.size > targetCount) return slots.sortedBy { it.startMinutes }.take(targetCount)
@@ -506,17 +531,23 @@ private fun resizeWeekTimeSlots(slots: List<WeekTimeSlot>, targetCount: Int): Li
     val expanded = slots.sortedBy { it.startMinutes }.toMutableList()
     while (expanded.size < targetCount) {
         val seed = expanded.lastOrNull()
-        expanded += if (seed == null) {
-            WeekTimeSlot(8 * 60, 8 * 60 + 40)
+        val nextSlot = if (seed == null) {
+            WeekTimeSlot(
+                startMinutes = DEFAULT_WEEK_SLOT_START_MINUTES,
+                endMinutes = DEFAULT_WEEK_SLOT_START_MINUTES + DEFAULT_WEEK_SLOT_DURATION_MINUTES,
+            )
         } else {
             nextWeekTimeSlot(seed)
         }
+        if (nextSlot == null) break
+        expanded += nextSlot
     }
     return expanded
 }
 
-private fun nextWeekTimeSlot(previous: WeekTimeSlot): WeekTimeSlot {
-    val start = (previous.endMinutes + 5).coerceAtMost(23 * 60 + 19)
-    val end = (start + 40).coerceAtMost(24 * 60 - 1)
-    return if (start < end) WeekTimeSlot(start, end) else WeekTimeSlot(23 * 60, 23 * 60 + 39)
+internal fun nextWeekTimeSlot(previous: WeekTimeSlot): WeekTimeSlot? {
+    val start = previous.endMinutes + DEFAULT_WEEK_SLOT_GAP_MINUTES
+    val end = start + DEFAULT_WEEK_SLOT_DURATION_MINUTES
+    if (end > 24 * 60) return null
+    return WeekTimeSlot(startMinutes = start, endMinutes = end)
 }
