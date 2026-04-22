@@ -55,7 +55,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.timetable.data.AppBackgroundMode
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.BackgroundImageManager
-import com.example.timetable.data.buildWeekTimeSlotsFromFixedSchedule
 import com.example.timetable.data.inferFixedWeekScheduleConfig
 import com.example.timetable.data.syncWeekTimeSlotsWithEntryChange
 import com.example.timetable.data.TimetableEntry
@@ -471,13 +470,13 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     if (editingFixedWeekSchedule) {
         FixedWeekScheduleDialog(
             initialConfig = inferFixedWeekScheduleConfig(weekTimeSlots),
+            initialSlots = weekTimeSlots,
             onDismiss = { editingFixedWeekSchedule = false },
-            onSave = { config ->
-                val generatedSlots = buildWeekTimeSlotsFromFixedSchedule(config)
-                weekTimeSlots = generatedSlots
-                AppearanceStore.setWeekTimeSlots(context, generatedSlots)
+            onSave = { updatedSlots ->
+                weekTimeSlots = updatedSlots
+                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingFixedWeekSchedule = false
-                scope.launch { snackbarHostState.showSnackbar("已按固定上课时间生成周视图节次") }
+                scope.launch { snackbarHostState.showSnackbar("已更新周视图节次时间") }
             },
         )
     }

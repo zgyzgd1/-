@@ -118,4 +118,20 @@ class WeekSchedulePlannerTest {
             config,
         )
     }
+
+    @Test
+    fun areWeekTimeSlotsNonOverlappingAllowsGapsButRejectsOverlap() {
+        val nonOverlapping = listOf(
+            WeekTimeSlot(startMinutes = 8 * 60, endMinutes = 8 * 60 + 45),
+            WeekTimeSlot(startMinutes = 9 * 60 + 5, endMinutes = 9 * 60 + 50),
+            WeekTimeSlot(startMinutes = 13 * 60, endMinutes = 13 * 60 + 40),
+        )
+        val overlapping = listOf(
+            WeekTimeSlot(startMinutes = 8 * 60, endMinutes = 8 * 60 + 45),
+            WeekTimeSlot(startMinutes = 8 * 60 + 30, endMinutes = 9 * 60 + 10),
+        )
+
+        org.junit.Assert.assertTrue(areWeekTimeSlotsNonOverlapping(nonOverlapping))
+        org.junit.Assert.assertFalse(areWeekTimeSlotsNonOverlapping(overlapping))
+    }
 }

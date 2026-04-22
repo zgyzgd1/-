@@ -65,6 +65,13 @@ fun buildWeekTimeSlotsFromFixedSchedule(config: FixedWeekScheduleConfig): List<W
     return slots
 }
 
+fun areWeekTimeSlotsNonOverlapping(slots: List<WeekTimeSlot>): Boolean {
+    if (slots.isEmpty()) return false
+    return slots.zipWithNext().all { (current, next) ->
+        current.endMinutes <= next.startMinutes
+    }
+}
+
 fun syncWeekTimeSlotsWithEntryChange(
     currentSlots: List<WeekTimeSlot>,
     originalEntry: TimetableEntry?,

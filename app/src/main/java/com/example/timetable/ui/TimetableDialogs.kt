@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.example.timetable.data.FixedWeekScheduleConfig
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
+import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
 import com.example.timetable.data.buildWeekTimeSlotsFromFixedSchedule
 import com.example.timetable.data.formatMinutes
 import com.example.timetable.data.parseEntryDate
@@ -310,8 +314,9 @@ fun WeekSlotCountDialog(
 @Composable
 fun FixedWeekScheduleDialog(
     initialConfig: FixedWeekScheduleConfig,
+    initialSlots: List<WeekTimeSlot>,
     onDismiss: () -> Unit,
-    onSave: (FixedWeekScheduleConfig) -> Unit,
+    onSave: (List<WeekTimeSlot>) -> Unit,
 ) {
     var firstStartTime by rememberSaveable(initialConfig) {
         mutableStateOf(formatMinutes(initialConfig.firstStartMinutes))
@@ -325,34 +330,24 @@ fun FixedWeekScheduleDialog(
     var slotCountText by rememberSaveable(initialConfig) {
         mutableStateOf(initialConfig.slotCount.toString())
     }
-    var errorText by remember { mutableStateOf<String?>(null) }
-
-    val previewSlots = remember(firstStartTime, lessonDurationText, breakDurationText, slotCountText) {
-        val start = parseMinutes(firstStartTime)
-        val lessonDuration = lessonDurationText.toIntOrNull()
-        val breakDuration = breakDurationText.toIntOrNull()
-        val slotCount = slotCountText.toIntOrNull()
-        if (start == null || lessonDuration == null || breakDuration == null || slotCount == null || start >= 24 * 60) {
-            emptyList()
-        } else {
-            runCatching {
-                buildWeekTimeSlotsFromFixedSchedule(
-                    FixedWeekScheduleConfig(
-                        firstStartMinutes = start,
-                        lessonDurationMinutes = lessonDuration,
-                        breakDurationMinutes = breakDuration,
-                        slotCount = slotCount,
-                    ),
-                )
-            }.getOrDefault(emptyList())
-        }
+    var slotDrafts by remember(initialSlots, initialConfig) {
+        mutableStateOf(
+            initialSlots
+                .takeIf { it.isNotEmpty() }
+                ?.map { EditableWeekSlotDraft.fromSlot(it) }
+                ?: buildWeekTimeSlotsFromFixedSchedule(initialConfig).map { EditableWeekSlotDraft.fromSlot(it) },
+        )
     }
+    var errorText by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("固定上课时间") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 AppTextField(
                     value = firstStartTime,
                     onValueChange = {
@@ -393,17 +388,61 @@ fun FixedWeekScheduleDialog(
                         slotCountText = it
                         errorText = null
                     },
-                    label = "总节数",
+                    label = "生成节数",
                     keyboardType = KeyboardType.Number,
                     singleLine = true,
                 )
-                if (previewSlots.isNotEmpty()) {
+                Text(
+                    text = "先用固定规则快速生成节次，再在下面逐节微调。每一节之间可以留空档，不要求连续。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            val generatedSlots = buildGeneratedWeekSlots(
+                                firstStartTime = firstStartTime,
+                                lessonDurationText = lessonDurationText,
+                                breakDurationText = breakDurationText,
+                                slotCountText = slotCountText,
+                            )
+                            if (generatedSlots == null) {
+                                errorText = "请先输入合法的固定时间参数"
+                            } else {
+                                slotDrafts = generatedSlots.map { EditableWeekSlotDraft.fromSlot(it) }
+                                errorText = null
+                            }
+                        },
+                    ) {
+                        Text("按固定规则生成")
+                    }
                     Text(
-                        text = buildPreviewText(previewSlots),
+                        text = "当前 ${slotDrafts.size} 节",
+                        modifier = Modifier.padding(top = 10.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                slotDrafts.forEachIndexed { index, draft ->
+                    WeekSlotDraftEditor(
+                        index = index,
+                        draft = draft,
+                        onStartChanged = { value ->
+                            slotDrafts = slotDrafts.toMutableList().apply {
+                                this[index] = this[index].copy(startTime = value)
+                            }
+                            errorText = null
+                        },
+                        onEndChanged = { value ->
+                            slotDrafts = slotDrafts.toMutableList().apply {
+                                this[index] = this[index].copy(endTime = value)
+                            }
+                            errorText = null
+                        },
+                    )
+                }
+
                 errorText?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -412,32 +451,12 @@ fun FixedWeekScheduleDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val parsedStart = parseMinutes(firstStartTime)
-                    val parsedLessonDuration = lessonDurationText.toIntOrNull()
-                    val parsedBreakDuration = breakDurationText.toIntOrNull()
-                    val parsedSlotCount = slotCountText.toIntOrNull()
+                    val parsedSlots = slotDrafts.toWeekTimeSlots()
                     when {
-                        parsedStart == null || parsedStart >= 24 * 60 -> errorText = "请输入合法的首节开始时间，例如 08:00"
-                        parsedLessonDuration == null -> errorText = "请输入单节时长"
-                        parsedBreakDuration == null -> errorText = "请输入节间休息时间"
-                        parsedSlotCount == null -> errorText = "请输入总节数"
-                        parsedLessonDuration !in 1..240 -> errorText = "单节时长范围为 1 到 240 分钟"
-                        parsedBreakDuration !in 0..120 -> errorText = "节间休息范围为 0 到 120 分钟"
-                        parsedSlotCount !in 1..20 -> errorText = "总节数范围为 1 到 20"
-                        else -> {
-                            val config = FixedWeekScheduleConfig(
-                                firstStartMinutes = parsedStart,
-                                lessonDurationMinutes = parsedLessonDuration,
-                                breakDurationMinutes = parsedBreakDuration,
-                                slotCount = parsedSlotCount,
-                            )
-                            val generatedSlots = buildWeekTimeSlotsFromFixedSchedule(config)
-                            if (generatedSlots.size != parsedSlotCount) {
-                                errorText = "当天时间不足以排下这么多节，请缩短时长或减少节数"
-                            } else {
-                                onSave(config)
-                            }
-                        }
+                        parsedSlots == null -> errorText = "请先把每一节的开始和结束时间填写完整，例如 08:00"
+                        parsedSlots.any { it.startMinutes >= it.endMinutes } -> errorText = "每一节都需要满足结束时间晚于开始时间"
+                        !areWeekTimeSlotsNonOverlapping(parsedSlots) -> errorText = "节次时间不能交叉，后面的节次可以留空档，但不能早于上一节结束"
+                        else -> onSave(parsedSlots)
                     }
                 },
             ) {
@@ -452,13 +471,82 @@ fun FixedWeekScheduleDialog(
     )
 }
 
-private fun buildPreviewText(slots: List<WeekTimeSlot>): String {
-    val previewLines = slots.take(4).mapIndexed { index, slot ->
-        "第${index + 1}节 ${formatMinutes(slot.startMinutes)}-${formatMinutes(slot.endMinutes)}"
-    }.toMutableList()
-    if (slots.size > 4) {
-        previewLines += "..."
-        previewLines += "第${slots.size}节 ${formatMinutes(slots.last().startMinutes)}-${formatMinutes(slots.last().endMinutes)}"
+@Composable
+private fun WeekSlotDraftEditor(
+    index: Int,
+    draft: EditableWeekSlotDraft,
+    onStartChanged: (String) -> Unit,
+    onEndChanged: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "第${index + 1}节",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        TimeRangeFields(
+            startTime = draft.startTime,
+            endTime = draft.endTime,
+            onStartChanged = onStartChanged,
+            onEndChanged = onEndChanged,
+        )
     }
-    return previewLines.joinToString("\n")
+}
+
+private data class EditableWeekSlotDraft(
+    val startTime: String,
+    val endTime: String,
+) {
+    companion object {
+        fun fromSlot(slot: WeekTimeSlot): EditableWeekSlotDraft {
+            return EditableWeekSlotDraft(
+                startTime = formatMinutes(slot.startMinutes),
+                endTime = formatMinutes(slot.endMinutes),
+            )
+        }
+    }
+}
+
+private fun List<EditableWeekSlotDraft>.toWeekTimeSlots(): List<WeekTimeSlot>? {
+    val parsed = mutableListOf<WeekTimeSlot>()
+    forEach { draft ->
+        val start = parseMinutes(draft.startTime) ?: return null
+        val end = parseMinutes(draft.endTime) ?: return null
+        parsed += WeekTimeSlot(
+            startMinutes = start,
+            endMinutes = end,
+        )
+    }
+    return parsed
+}
+
+private fun buildGeneratedWeekSlots(
+    firstStartTime: String,
+    lessonDurationText: String,
+    breakDurationText: String,
+    slotCountText: String,
+): List<WeekTimeSlot>? {
+    val parsedStart = parseMinutes(firstStartTime)
+    val parsedLessonDuration = lessonDurationText.toIntOrNull()
+    val parsedBreakDuration = breakDurationText.toIntOrNull()
+    val parsedSlotCount = slotCountText.toIntOrNull()
+    if (
+        parsedStart == null ||
+        parsedStart >= 24 * 60 ||
+        parsedLessonDuration == null ||
+        parsedBreakDuration == null ||
+        parsedSlotCount == null ||
+        parsedLessonDuration !in 1..240 ||
+        parsedBreakDuration !in 0..120 ||
+        parsedSlotCount !in 1..20
+    ) {
+        return null
+    }
+
+    val config = FixedWeekScheduleConfig(
+        firstStartMinutes = parsedStart,
+        lessonDurationMinutes = parsedLessonDuration,
+        breakDurationMinutes = parsedBreakDuration,
+        slotCount = parsedSlotCount,
+    )
+    return buildWeekTimeSlotsFromFixedSchedule(config).takeIf { it.size == parsedSlotCount }
 }
