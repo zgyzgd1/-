@@ -100,6 +100,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     var editingWeekSlotIndex by remember { mutableStateOf<Int?>(null) }
     var addingWeekSlotInitial by remember { mutableStateOf<WeekTimeSlot?>(null) }
     var editingWeekSlotCount by remember { mutableStateOf(false) }
+    var showBackgroundAdjustDialog by remember { mutableStateOf(false) }
     var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
 
@@ -153,6 +154,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         BackgroundImageManager.saveCustomBackground(context, context.contentResolver, uri)
                     }
                     backgroundAppearance = AppearanceStore.getBackgroundAppearance(context)
+                    showBackgroundAdjustDialog = true
                     snackbarHostState.showSnackbar("已更新背景图片")
                 } catch (error: Exception) {
                     snackbarHostState.showSnackbar(
@@ -376,6 +378,9 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                                     backgroundAppearance = AppearanceStore.getBackgroundAppearance(context)
                                     scope.launch { snackbarHostState.showSnackbar("已关闭图片背景") }
                                 },
+                                onAdjustCustomBackground = {
+                                    showBackgroundAdjustDialog = true
+                                },
                                 onClearCustomBackground = {
                                     BackgroundImageManager.clearCustomBackground(context)
                                     if (backgroundAppearance.mode == AppBackgroundMode.CUSTOM_IMAGE) {
@@ -434,6 +439,19 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    if (showBackgroundAdjustDialog) {
+        BackgroundImageAdjustDialog(
+            backgroundAppearance = backgroundAppearance,
+            onDismiss = { showBackgroundAdjustDialog = false },
+            onSave = { transform ->
+                AppearanceStore.setBackgroundImageTransform(context, transform)
+                backgroundAppearance = AppearanceStore.getBackgroundAppearance(context)
+                showBackgroundAdjustDialog = false
+                scope.launch { snackbarHostState.showSnackbar("已更新背景展示范围") }
+            },
+        )
     }
 
     editingEntry?.let { entry ->

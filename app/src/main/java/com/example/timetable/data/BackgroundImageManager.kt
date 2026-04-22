@@ -44,7 +44,7 @@ object BackgroundImageManager {
             bitmap.recycle()
         }
 
-        AppearanceStore.setBackgroundMode(context, AppBackgroundMode.CUSTOM_IMAGE)
+        AppearanceStore.setCustomBackground(context)
     }
 
     fun clearCustomBackground(context: Context) {

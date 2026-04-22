@@ -18,12 +18,16 @@ enum class AppBackgroundMode(val storageValue: String) {
 data class BackgroundAppearance(
     val mode: AppBackgroundMode,
     val revision: Long,
+    val imageTransform: BackgroundImageTransform,
 )
 
 object AppearanceStore {
     private const val PREFS_NAME = "appearance_prefs"
     private const val KEY_BACKGROUND_MODE = "background_mode"
     private const val KEY_BACKGROUND_REVISION = "background_revision"
+    private const val KEY_BACKGROUND_IMAGE_SCALE = "background_image_scale"
+    private const val KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS = "background_image_horizontal_bias"
+    private const val KEY_BACKGROUND_IMAGE_VERTICAL_BIAS = "background_image_vertical_bias"
     private const val KEY_WEEK_CARD_ALPHA = "week_card_alpha"
     private const val KEY_WEEK_CARD_HUE = "week_card_hue"
     private const val KEY_WEEK_TIME_SLOTS = "week_time_slots"
@@ -46,6 +50,7 @@ object AppearanceStore {
         return BackgroundAppearance(
             mode = AppBackgroundMode.fromStorageValue(store.getString(KEY_BACKGROUND_MODE, null)),
             revision = store.getLong(KEY_BACKGROUND_REVISION, DEFAULT_BACKGROUND_REVISION),
+            imageTransform = getBackgroundImageTransform(context),
         )
     }
 
@@ -53,6 +58,41 @@ object AppearanceStore {
         val store = prefs(context)
         store.edit()
             .putString(KEY_BACKGROUND_MODE, mode.storageValue)
+            .putLong(KEY_BACKGROUND_REVISION, nextBackgroundRevision(store))
+            .apply()
+    }
+
+    fun setCustomBackground(
+        context: Context,
+        imageTransform: BackgroundImageTransform = BackgroundImageTransform(),
+    ) {
+        val store = prefs(context)
+        val normalized = imageTransform.normalized()
+        store.edit()
+            .putString(KEY_BACKGROUND_MODE, AppBackgroundMode.CUSTOM_IMAGE.storageValue)
+            .putFloat(KEY_BACKGROUND_IMAGE_SCALE, normalized.scale)
+            .putFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, normalized.horizontalBias)
+            .putFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, normalized.verticalBias)
+            .putLong(KEY_BACKGROUND_REVISION, nextBackgroundRevision(store))
+            .apply()
+    }
+
+    fun getBackgroundImageTransform(context: Context): BackgroundImageTransform {
+        val store = prefs(context)
+        return BackgroundImageTransform(
+            scale = store.getFloat(KEY_BACKGROUND_IMAGE_SCALE, 1f),
+            horizontalBias = store.getFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, 0f),
+            verticalBias = store.getFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, 0f),
+        ).normalized()
+    }
+
+    fun setBackgroundImageTransform(context: Context, imageTransform: BackgroundImageTransform) {
+        val store = prefs(context)
+        val normalized = imageTransform.normalized()
+        store.edit()
+            .putFloat(KEY_BACKGROUND_IMAGE_SCALE, normalized.scale)
+            .putFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, normalized.horizontalBias)
+            .putFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, normalized.verticalBias)
             .putLong(KEY_BACKGROUND_REVISION, nextBackgroundRevision(store))
             .apply()
     }

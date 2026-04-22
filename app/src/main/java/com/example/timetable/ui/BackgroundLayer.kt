@@ -44,12 +44,10 @@ fun AppBackgroundLayer(backgroundAppearance: BackgroundAppearance) {
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             customBackground != null -> {
-                Image(
+                CustomBackgroundImage(
                     bitmap = customBackground!!,
-                    contentDescription = null,
+                    imageTransform = backgroundAppearance.imageTransform,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = BiasAlignment(0.04f, -0.02f),
                 )
             }
             backgroundAppearance.mode != AppBackgroundMode.GRADIENT -> {
@@ -63,46 +61,48 @@ fun AppBackgroundLayer(backgroundAppearance: BackgroundAppearance) {
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.10f),
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.10f),
-                        ),
-                    ),
-                ),
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.22f),
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.08f),
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.16f),
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.34f),
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
-                        ),
-                    ),
-                ),
-        )
+        BackgroundTintOverlays(modifier = Modifier.fillMaxSize())
     }
+}
+
+@Composable
+fun BackgroundTintOverlays(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.10f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.10f),
+                    ),
+                ),
+            ),
+    )
+
+    Box(
+        modifier = modifier
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.22f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.08f),
+                        Color.Transparent,
+                    ),
+                ),
+            ),
+    )
+
+    Box(
+        modifier = modifier
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.16f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.34f),
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.56f),
+                    ),
+                ),
+            ),
+    )
 }

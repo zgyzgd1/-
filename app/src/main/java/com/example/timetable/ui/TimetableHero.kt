@@ -65,6 +65,7 @@ fun HeroSection(
     onSelectBackgroundImage: () -> Unit,
     onUseBundledBackground: () -> Unit,
     onUseGradientBackground: () -> Unit,
+    onAdjustCustomBackground: () -> Unit,
     onClearCustomBackground: () -> Unit,
     weekCardAlpha: Float,
     onWeekCardAlphaChange: (Float) -> Unit,
@@ -164,6 +165,7 @@ fun HeroSection(
             onSelectBackgroundImage = onSelectBackgroundImage,
             onUseBundledBackground = onUseBundledBackground,
             onUseGradientBackground = onUseGradientBackground,
+            onAdjustCustomBackground = onAdjustCustomBackground,
             onClearCustomBackground = onClearCustomBackground,
             weekCardAlpha = weekCardAlpha,
             onWeekCardAlphaChange = onWeekCardAlphaChange,
@@ -222,6 +224,7 @@ private fun AppearanceDialog(
     onSelectBackgroundImage: () -> Unit,
     onUseBundledBackground: () -> Unit,
     onUseGradientBackground: () -> Unit,
+    onAdjustCustomBackground: () -> Unit,
     onClearCustomBackground: () -> Unit,
     weekCardAlpha: Float,
     onWeekCardAlphaChange: (Float) -> Unit,
@@ -239,7 +242,7 @@ private fun AppearanceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("背景与色卡", style = MaterialTheme.typography.titleMedium) },
+        title = { Text("背景与色块", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -250,7 +253,7 @@ private fun AppearanceDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "自定义图片会保存在本地，重启后仍会保留。",
+                        text = "自定义图片会保存在本地，重启应用后仍会保留。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f),
                     )
@@ -281,8 +284,25 @@ private fun AppearanceDialog(
                         }
                     }
                     if (hasCustomBackground) {
-                        TextButton(onClick = onClearCustomBackground) {
-                            Text("清除自定义图片")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    onDismiss()
+                                    onAdjustCustomBackground()
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("调整范围")
+                            }
+                            TextButton(
+                                onClick = onClearCustomBackground,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("清除自定义图片")
+                            }
                         }
                     }
                 }
@@ -370,7 +390,7 @@ private fun ReminderPickerDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "选择课程开始前多久接收到提醒通知",
+                    text = "选择课程开始前多久接收提醒通知",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
