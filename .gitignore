@@ -1,5 +1,6 @@
 .gradle/
 .gradle-wrapper/
+.kotlin/
 build/
 app/build/
 local.properties
