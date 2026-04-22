@@ -454,21 +454,27 @@ fun SectionHeader(title: String) {
 
 @Composable
 fun ViewModeSwitcher(
-    isWeekMode: Boolean,
-    onModeChange: (Boolean) -> Unit,
+    currentDestination: AppDestination,
+    onDestinationChange: (AppDestination) -> Unit,
 ) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.80f)) {
         NavigationBarItem(
-            selected = !isWeekMode,
-            onClick = { onModeChange(false) },
+            selected = currentDestination == AppDestination.DAY,
+            onClick = { onDestinationChange(AppDestination.DAY) },
             icon = {},
             label = { Text("日视图") },
         )
         NavigationBarItem(
-            selected = isWeekMode,
-            onClick = { onModeChange(true) },
+            selected = currentDestination == AppDestination.WEEK,
+            onClick = { onDestinationChange(AppDestination.WEEK) },
             icon = {},
             label = { Text("周视图") },
+        )
+        NavigationBarItem(
+            selected = currentDestination == AppDestination.SETTINGS,
+            onClick = { onDestinationChange(AppDestination.SETTINGS) },
+            icon = {},
+            label = { Text("设置") },
         )
     }
 }

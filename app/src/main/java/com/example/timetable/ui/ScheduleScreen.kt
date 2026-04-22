@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.timetable.data.AppBackgroundMode
+import com.example.timetable.data.AppCacheManager
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.BackgroundImageManager
 import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
@@ -66,6 +68,7 @@ import com.example.timetable.notify.CourseReminderScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +76,13 @@ import kotlinx.coroutines.withContext
 private const val DEFAULT_WEEK_SLOT_START_MINUTES = 8 * 60
 private const val DEFAULT_WEEK_SLOT_DURATION_MINUTES = 40
 private const val DEFAULT_WEEK_SLOT_GAP_MINUTES = 5
+
+private val appDestinationNameStateSaver = Saver<String, Any>(
+    save = { it },
+    restore = { savedValue ->
+        AppDestination.fromSavedStateValue(savedValue).name
+    },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,7 +103,20 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     val maxDate = LocalDate.of(2100, 12, 31)
     val initialDate = LocalDate.now().takeIf { it in minDate..maxDate } ?: LocalDate.of(2026, 1, 1)
     var selectedDate by rememberSaveable { mutableStateOf(initialDate.toString()) }
-    var isWeekMode by rememberSaveable { mutableStateOf(false) }
+    var currentDestinationName by rememberSaveable(stateSaver = appDestinationNameStateSaver) {
+        mutableStateOf(AppDestination.DAY.name)
+    }
+    val currentDestination = remember(currentDestinationName) {
+        AppDestination.fromSavedName(currentDestinationName)
+    }
+    LaunchedEffect(currentDestinationName) {
+        val normalizedDestinationName = currentDestination.name
+        if (normalizedDestinationName != currentDestinationName) {
+            currentDestinationName = normalizedDestinationName
+        }
+    }
+    val isWeekMode = currentDestination == AppDestination.WEEK
+    val isSettingsPage = currentDestination == AppDestination.SETTINGS
 
     val selectedLocalDate = parseEntryDate(selectedDate) ?: minDate
     val selectedWeekStart = remember(selectedLocalDate) {
@@ -107,6 +130,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     var editingWeekSlotCount by remember { mutableStateOf(false) }
     var editingFixedWeekSchedule by remember { mutableStateOf(false) }
     var showBackgroundAdjustDialog by remember { mutableStateOf(false) }
+    var clearingCache by remember { mutableStateOf(false) }
     var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
 
@@ -192,47 +216,54 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
-                if (!isWeekMode) {
-                    LargeTopAppBar(
-                        title = {
-                            Text(
-                                text = "我的课表",
-                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                            )
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
-                            titleContentColor = MaterialTheme.colorScheme.onBackground,
-                        ),
-                    )
+                when (currentDestination) {
+                    AppDestination.DAY,
+                    AppDestination.SETTINGS -> {
+                        LargeTopAppBar(
+                            title = {
+                                Text(
+                                    text = if (currentDestination == AppDestination.DAY) "我的课表" else "设置",
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                )
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = Color.Transparent,
+                                scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.68f),
+                                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                            ),
+                        )
+                    }
+                    AppDestination.WEEK -> Unit
                 }
             },
             floatingActionButton = {
-                FloatingActionButton(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    onClick = {
-                        editingEntry = TimetableEntry(
-                            title = "",
-                            date = selectedDate,
-                            dayOfWeek = selectedLocalDate.dayOfWeek.value,
-                            startMinutes = 8 * 60,
-                            endMinutes = 9 * 60,
-                        )
-                    },
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "新增课程")
+                if (!isSettingsPage) {
+                    FloatingActionButton(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        onClick = {
+                            editingEntry = TimetableEntry(
+                                title = "",
+                                date = selectedDate,
+                                dayOfWeek = selectedLocalDate.dayOfWeek.value,
+                                startMinutes = 8 * 60,
+                                endMinutes = 9 * 60,
+                            )
+                        },
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "新增课程")
+                    }
                 }
             },
             bottomBar = {
                 ViewModeSwitcher(
-                    isWeekMode = isWeekMode,
-                    onModeChange = { isWeekMode = it },
+                    currentDestination = currentDestination,
+                    onDestinationChange = { destination -> currentDestinationName = destination.name },
                 )
             },
         ) { padding ->
-            if (isWeekMode) {
+            when (currentDestination) {
+                AppDestination.WEEK -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -305,7 +336,8 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         )
                     }
                 }
-            } else {
+                }
+                AppDestination.DAY -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -450,6 +482,38 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         }
                         item { Spacer(modifier = Modifier.height(56.dp)) }
                     }
+                }
+                }
+                AppDestination.SETTINGS -> {
+                    SettingsScreen(
+                        clearingCache = clearingCache,
+                        onClearCache = {
+                            if (clearingCache) return@SettingsScreen
+                            scope.launch {
+                                clearingCache = true
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        AppCacheManager.clearAppCaches(context)
+                                    }
+                                    val message = if (result.bytesCleared > 0L) {
+                                        "已清除 ${AppCacheManager.formatBytes(result.bytesCleared)} 缓存"
+                                    } else {
+                                        "没有可清理的缓存"
+                                    }
+                                    snackbarHostState.showSnackbar(message)
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    snackbarHostState.showSnackbar(
+                                        "清除缓存失败：${error.message ?: "未知错误"}",
+                                    )
+                                } finally {
+                                    clearingCache = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(padding),
+                    )
                 }
             }
         }
