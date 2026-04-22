@@ -21,6 +21,71 @@ data class BackgroundAppearance(
     val imageTransform: BackgroundImageTransform,
 )
 
+internal data class ResolvedBackgroundMode(
+    val mode: AppBackgroundMode,
+    val shouldPersist: Boolean,
+)
+
+internal data class ResolvedBackgroundImageTransform(
+    val imageTransform: BackgroundImageTransform,
+    val shouldPersist: Boolean,
+)
+
+internal fun resolvePersistedBackgroundMode(
+    storedModeValue: String?,
+    hasCustomBackground: Boolean,
+): ResolvedBackgroundMode {
+    val parsedMode = AppBackgroundMode.entries.firstOrNull { it.storageValue == storedModeValue }
+    return when {
+        storedModeValue == null -> ResolvedBackgroundMode(AppBackgroundMode.BUNDLED_IMAGE, shouldPersist = true)
+        parsedMode == null -> ResolvedBackgroundMode(AppBackgroundMode.BUNDLED_IMAGE, shouldPersist = true)
+        parsedMode == AppBackgroundMode.CUSTOM_IMAGE && !hasCustomBackground -> {
+            ResolvedBackgroundMode(AppBackgroundMode.BUNDLED_IMAGE, shouldPersist = true)
+        }
+        else -> ResolvedBackgroundMode(parsedMode, shouldPersist = false)
+    }
+}
+
+internal fun resolvePersistedBackgroundImageTransform(
+    storedScale: Float?,
+    storedHorizontalBias: Float?,
+    storedVerticalBias: Float?,
+): ResolvedBackgroundImageTransform {
+    val defaults = BackgroundImageTransform()
+    val rawTransform = BackgroundImageTransform(
+        scale = storedScale ?: defaults.scale,
+        horizontalBias = storedHorizontalBias ?: defaults.horizontalBias,
+        verticalBias = storedVerticalBias ?: defaults.verticalBias,
+    )
+    val normalized = rawTransform.normalized()
+    return ResolvedBackgroundImageTransform(
+        imageTransform = normalized,
+        shouldPersist = storedScale == null ||
+            storedHorizontalBias == null ||
+            storedVerticalBias == null ||
+            normalized.scale != rawTransform.scale ||
+            normalized.horizontalBias != rawTransform.horizontalBias ||
+            normalized.verticalBias != rawTransform.verticalBias,
+    )
+}
+
+internal fun sanitizeWeekTimeSlots(
+    slots: List<WeekTimeSlot>,
+    fallbackSlots: List<WeekTimeSlot>,
+): List<WeekTimeSlot> {
+    val normalized = normalizeWeekTimeSlots(
+        slots
+            .map {
+                WeekTimeSlot(
+                    startMinutes = it.startMinutes.coerceIn(0, 24 * 60 - 1),
+                    endMinutes = it.endMinutes.coerceIn(1, 24 * 60),
+                )
+            }
+            .filter { it.startMinutes < it.endMinutes },
+    )
+    return normalized.ifEmpty { normalizeWeekTimeSlots(fallbackSlots) }
+}
+
 object AppearanceStore {
     private const val PREFS_NAME = "appearance_prefs"
     private const val KEY_BACKGROUND_MODE = "background_mode"
@@ -38,6 +103,10 @@ object AppearanceStore {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private fun SharedPreferences.getOptionalFloat(key: String): Float? {
+        return if (contains(key)) getFloat(key, 0f) else null
+    }
+
     private fun nextBackgroundRevision(store: SharedPreferences): Long {
         return maxOf(
             System.currentTimeMillis(),
@@ -47,10 +116,41 @@ object AppearanceStore {
 
     fun getBackgroundAppearance(context: Context): BackgroundAppearance {
         val store = prefs(context)
+        val resolvedMode = resolvePersistedBackgroundMode(
+            storedModeValue = store.getString(KEY_BACKGROUND_MODE, null),
+            hasCustomBackground = BackgroundImageManager.hasCustomBackground(context),
+        )
+        val resolvedTransform = resolvePersistedBackgroundImageTransform(
+            storedScale = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_SCALE),
+            storedHorizontalBias = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS),
+            storedVerticalBias = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS),
+        )
+        val revision = if (resolvedMode.shouldPersist) {
+            nextBackgroundRevision(store)
+        } else {
+            store.getLong(KEY_BACKGROUND_REVISION, DEFAULT_BACKGROUND_REVISION)
+        }
+
+        if (resolvedMode.shouldPersist || resolvedTransform.shouldPersist) {
+            store.edit()
+                .apply {
+                    if (resolvedMode.shouldPersist) {
+                        putString(KEY_BACKGROUND_MODE, resolvedMode.mode.storageValue)
+                        putLong(KEY_BACKGROUND_REVISION, revision)
+                    }
+                    if (resolvedTransform.shouldPersist) {
+                        putFloat(KEY_BACKGROUND_IMAGE_SCALE, resolvedTransform.imageTransform.scale)
+                        putFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, resolvedTransform.imageTransform.horizontalBias)
+                        putFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, resolvedTransform.imageTransform.verticalBias)
+                    }
+                }
+                .apply()
+        }
+
         return BackgroundAppearance(
-            mode = AppBackgroundMode.fromStorageValue(store.getString(KEY_BACKGROUND_MODE, null)),
-            revision = store.getLong(KEY_BACKGROUND_REVISION, DEFAULT_BACKGROUND_REVISION),
-            imageTransform = getBackgroundImageTransform(context),
+            mode = resolvedMode.mode,
+            revision = revision,
+            imageTransform = resolvedTransform.imageTransform,
         )
     }
 
@@ -79,11 +179,19 @@ object AppearanceStore {
 
     fun getBackgroundImageTransform(context: Context): BackgroundImageTransform {
         val store = prefs(context)
-        return BackgroundImageTransform(
-            scale = store.getFloat(KEY_BACKGROUND_IMAGE_SCALE, 1f),
-            horizontalBias = store.getFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, 0f),
-            verticalBias = store.getFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, 0f),
-        ).normalized()
+        val resolved = resolvePersistedBackgroundImageTransform(
+            storedScale = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_SCALE),
+            storedHorizontalBias = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS),
+            storedVerticalBias = store.getOptionalFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS),
+        )
+        if (resolved.shouldPersist) {
+            store.edit()
+                .putFloat(KEY_BACKGROUND_IMAGE_SCALE, resolved.imageTransform.scale)
+                .putFloat(KEY_BACKGROUND_IMAGE_HORIZONTAL_BIAS, resolved.imageTransform.horizontalBias)
+                .putFloat(KEY_BACKGROUND_IMAGE_VERTICAL_BIAS, resolved.imageTransform.verticalBias)
+                .apply()
+        }
+        return resolved.imageTransform
     }
 
     fun setBackgroundImageTransform(context: Context, imageTransform: BackgroundImageTransform) {
@@ -125,17 +233,21 @@ object AppearanceStore {
                 val end = parts[1].toIntOrNull() ?: return@mapNotNull null
                 WeekTimeSlot(start, end).takeIf { start in 0 until 24 * 60 && end in 1..24 * 60 && start < end }
             }
-            .sortedBy { it.startMinutes }
-        return if (parsed.isNotEmpty()) parsed else defaultWeekTimeSlots()
+        if (raw.isBlank()) {
+            return defaultWeekTimeSlots()
+        }
+
+        val sanitized = sanitizeWeekTimeSlots(parsed, defaultWeekTimeSlots())
+        if (sanitized != parsed) {
+            prefs(context).edit().putString(KEY_WEEK_TIME_SLOTS, serializedWeekTimeSlots(sanitized)).apply()
+        }
+        return sanitized
     }
 
-    fun setWeekTimeSlots(context: Context, slots: List<WeekTimeSlot>) {
-        val normalized = slots
-            .map { WeekTimeSlot(it.startMinutes.coerceIn(0, 24 * 60 - 1), it.endMinutes.coerceIn(1, 24 * 60)) }
-            .filter { it.startMinutes < it.endMinutes }
-            .sortedBy { it.startMinutes }
-        val raw = normalized.joinToString(";") { "${it.startMinutes}-${it.endMinutes}" }
-        prefs(context).edit().putString(KEY_WEEK_TIME_SLOTS, raw).apply()
+    fun setWeekTimeSlots(context: Context, slots: List<WeekTimeSlot>): List<WeekTimeSlot> {
+        val sanitized = sanitizeWeekTimeSlots(slots, defaultWeekTimeSlots())
+        prefs(context).edit().putString(KEY_WEEK_TIME_SLOTS, serializedWeekTimeSlots(sanitized)).apply()
+        return sanitized
     }
 
     fun defaultWeekTimeSlots(): List<WeekTimeSlot> {
@@ -149,6 +261,10 @@ object AppearanceStore {
             start += 45
         }
         return slots
+    }
+
+    private fun serializedWeekTimeSlots(slots: List<WeekTimeSlot>): String {
+        return slots.joinToString(";") { "${it.startMinutes}-${it.endMinutes}" }
     }
 }
 

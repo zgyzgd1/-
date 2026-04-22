@@ -55,6 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.timetable.data.AppBackgroundMode
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.BackgroundImageManager
+import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
 import com.example.timetable.data.inferFixedWeekScheduleConfig
 import com.example.timetable.data.syncWeekTimeSlotsWithEntryChange
 import com.example.timetable.data.TimetableEntry
@@ -473,8 +474,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
             initialSlots = weekTimeSlots,
             onDismiss = { editingFixedWeekSchedule = false },
             onSave = { updatedSlots ->
-                weekTimeSlots = updatedSlots
-                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingFixedWeekSchedule = false
                 scope.launch { snackbarHostState.showSnackbar("已更新周视图节次时间") }
             },
@@ -494,8 +494,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                     updatedEntry = updatedEntry,
                 )
                 if (syncedWeekTimeSlots != weekTimeSlots) {
-                    weekTimeSlots = syncedWeekTimeSlots
-                    AppearanceStore.setWeekTimeSlots(context, syncedWeekTimeSlots)
+                    weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, syncedWeekTimeSlots)
                 }
                 editingEntry = null
             },
@@ -512,15 +511,17 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                 val updatedSlots = weekTimeSlots.toMutableList().apply {
                     this[index] = updatedSlot
                 }.sortedBy { it.startMinutes }
-                weekTimeSlots = updatedSlots
-                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                if (!areWeekTimeSlotsNonOverlapping(updatedSlots)) {
+                    scope.launch { snackbarHostState.showSnackbar("节次时间不能重叠") }
+                    return@WeekSlotEditorDialog
+                }
+                weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingWeekSlotIndex = null
             },
             onDelete = if (weekTimeSlots.size > 1) {
                 {
                     val updatedSlots = weekTimeSlots.toMutableList().apply { removeAt(index) }
-                    weekTimeSlots = updatedSlots
-                    AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                    weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                     editingWeekSlotIndex = null
                     scope.launch { snackbarHostState.showSnackbar("已删除第 ${index + 1} 节") }
                 }
@@ -537,8 +538,11 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
             onDismiss = { addingWeekSlotInitial = null },
             onSave = { newSlot ->
                 val updatedSlots = (weekTimeSlots + newSlot).sortedBy { it.startMinutes }
-                weekTimeSlots = updatedSlots
-                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                if (!areWeekTimeSlotsNonOverlapping(updatedSlots)) {
+                    scope.launch { snackbarHostState.showSnackbar("节次时间不能重叠") }
+                    return@WeekSlotEditorDialog
+                }
+                weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 addingWeekSlotInitial = null
                 scope.launch { snackbarHostState.showSnackbar("已新增第 ${updatedSlots.indexOf(newSlot) + 1} 节") }
             },
@@ -551,8 +555,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
             onDismiss = { editingWeekSlotCount = false },
             onSave = { count ->
                 val updatedSlots = resizeWeekTimeSlots(weekTimeSlots, count)
-                weekTimeSlots = updatedSlots
-                AppearanceStore.setWeekTimeSlots(context, updatedSlots)
+                weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, updatedSlots)
                 editingWeekSlotCount = false
                 scope.launch {
                     val message = if (updatedSlots.size == count) {

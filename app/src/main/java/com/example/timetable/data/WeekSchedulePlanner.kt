@@ -297,7 +297,7 @@ private fun shiftWeekTimeSlot(
     ).takeIf { it.startMinutes < it.endMinutes }
 }
 
-private fun normalizeWeekTimeSlots(slots: List<WeekTimeSlot>): List<WeekTimeSlot> {
+internal fun normalizeWeekTimeSlots(slots: List<WeekTimeSlot>): List<WeekTimeSlot> {
     val normalized = mutableListOf<WeekTimeSlot>()
     slots.sortedBy { it.startMinutes }.forEach { slot ->
         val adjustedStart = if (normalized.isEmpty()) {
