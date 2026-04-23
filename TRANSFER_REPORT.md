@@ -1,15 +1,15 @@
 # 转接报告（2026-04-23）
 
 ## 1. 当前发布基线
-- 当前远端基线：`origin/main` = `02a7709`（`Release v1.20`）
-- 本轮功能提交：`282911b` `perf: optimize timetable snapshot reuse`
-- 当前 release 提交：`02a7709` `Release v1.20`
-- GitHub Release：`v1.20`
-- Release 地址：`https://github.com/zgyzgd1/CXYtimetable/releases/tag/v1.20`
-- 本地发布 APK：`app/build/release-assets/Timetable-v1.20.apk`
+- 当前远端基线：`origin/main` = `2088d7a`（`Release v1.21`）
+- 本轮功能提交：`45854c8` `perf: optimize snapshot range caching and edge tests`
+- 当前 release 提交：`2088d7a` `Release v1.21`
+- GitHub Release：`v1.21`
+- Release 地址：`https://github.com/zgyzgd1/CXYtimetable/releases/tag/v1.21`
+- 本地发布 APK：`app/build/release-assets/Timetable-v1.21.apk`
 - 当前版本号：
-  - `APP_VERSION_NAME=1.20`
-  - `APP_VERSION_CODE=21`
+  - `APP_VERSION_NAME=1.21`
+  - `APP_VERSION_CODE=22`
 
 ## 2. 已发布内容范围
 - 多档提前提醒
@@ -72,8 +72,8 @@
 
 ### 4.2 发布执行结果
 - 已推送 `main` 到 GitHub
-- 已推送标签 `v1.20`
-- 已上传 `Timetable-v1.20.apk` 到 GitHub Release
+- 已推送标签 `v1.21`
+- 已上传 `Timetable-v1.21.apk` 到 GitHub Release
 - 发布过程中出现过一次 `git push origin main` 的 TLS 握手失败
 - 该问题已通过后续重试补推解决，不影响当前 release 状态
 
@@ -86,8 +86,11 @@
   - `.\gradlew.bat --offline --no-daemon testDebugUnitTest --tests com.example.timetable.data.TimetableSnapshotsTest --tests com.example.timetable.notify.CourseReminderSchedulerTest --tests com.example.timetable.widget.TimetableWidgetUpdaterTest --tests com.example.timetable.ui.ScheduleScreenTest --rerun-tasks`
   - VS Code 任务 `assembleDebug`
   - VS Code 任务 `envDoctor`
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-release.ps1`
 - 结果：
   - 相关单测通过
+  - `assembleRelease` 构建通过
+  - `v1.21` Release 与 APK 上传通过
   - `assembleDebug` 构建通过
   - `envDoctor` 在脚本修正后通过
   - 仅保留既有的 Android SDK XML warning
@@ -103,8 +106,8 @@
 
 ## 7. 当前工作区状态
 - 当前分支：`main`
-- 当前工作区：dirty（存在未提交改动）
-- 当前基线：`02a7709` / `v1.20`
+- 当前工作区：clean
+- 当前基线：`2088d7a` / `v1.21`
 
 ## 8. 建议下一步
 - 继续阶段 4 任务 3
