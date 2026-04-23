@@ -73,9 +73,9 @@
 
 ### 4. 发布流程还不够正式
 
-- 仓库当前没有接入正式的 release keystore
-- GitHub Release 中的可安装 APK 目前依赖 debug 签名包用于测试分发
-- 如果要做真正面向用户的正式发布，还需要补完整签名配置
+- 仓库当前不内置正式的 release keystore
+- GitHub Release 和发布脚本现在要求在本机或 CI 中显式提供 `RELEASE_STORE_FILE`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`
+- 如果未提供上述配置，`assembleRelease` 只会生成 unsigned APK，发布脚本会直接失败
 
 ### 5. 数据库版本演进还要继续补
 

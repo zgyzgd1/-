@@ -67,7 +67,8 @@ That means each time you use this script, the old version is preserved on GitHub
   - `APP_VERSION_CODE`
 - Every GitHub release keeps exactly one APK asset:
   - `Timetable-vX.Y.apk`
-- GitHub releases currently use the Android `debug` keystore so the APK stays installable and the signing stays consistent.
+- GitHub releases require a dedicated release keystore that is provided outside the repository.
+- Configure `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and `RELEASE_KEY_PASSWORD` in your shell or Gradle properties before publishing.
 
 ## Command
 
@@ -110,4 +111,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-release.ps
 
 - The script requires a clean git working tree.
 - The script reads the GitHub token from the configured git credential helper.
-- If a dedicated release keystore is added later, only the signing section in `app/build.gradle.kts` and the release note text need to change.
+- `publish-release.ps1` fails if `assembleRelease` only produces `app-release-unsigned.apk`.

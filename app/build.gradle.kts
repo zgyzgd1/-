@@ -8,6 +8,32 @@ plugins {
 
 val appVersionCode = providers.gradleProperty("APP_VERSION_CODE").get().toInt()
 val appVersionName = providers.gradleProperty("APP_VERSION_NAME").get()
+val releaseStoreFile = providers.gradleProperty("RELEASE_STORE_FILE")
+    .orElse(providers.environmentVariable("RELEASE_STORE_FILE"))
+val releaseStorePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD")
+    .orElse(providers.environmentVariable("RELEASE_STORE_PASSWORD"))
+val releaseKeyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS")
+    .orElse(providers.environmentVariable("RELEASE_KEY_ALIAS"))
+val releaseKeyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD")
+    .orElse(providers.environmentVariable("RELEASE_KEY_PASSWORD"))
+val releaseSigningInputs = mapOf(
+    "RELEASE_STORE_FILE" to releaseStoreFile,
+    "RELEASE_STORE_PASSWORD" to releaseStorePassword,
+    "RELEASE_KEY_ALIAS" to releaseKeyAlias,
+    "RELEASE_KEY_PASSWORD" to releaseKeyPassword,
+)
+val configuredReleaseSigningInputs = releaseSigningInputs.filterValues { it.isPresent }.keys
+val hasReleaseSigning = configuredReleaseSigningInputs.size == releaseSigningInputs.size
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+
+if (configuredReleaseSigningInputs.isNotEmpty() && !hasReleaseSigning && releaseTaskRequested) {
+    error(
+        "Release signing is partially configured. Provide RELEASE_STORE_FILE, " +
+            "RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD.",
+    )
+}
 
 android {
     namespace = "com.example.timetable"
@@ -26,10 +52,21 @@ android {
         compose = true
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile.get())
+                storePassword = releaseStorePassword.get()
+                keyAlias = releaseKeyAlias.get()
+                keyPassword = releaseKeyPassword.get()
+            }
+        }
+    }
+
     buildTypes {
         getByName("release") {
-            // Keep release artifacts consistently installable until a proper release keystore is configured.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without a configured release keystore, AGP emits an unsigned release artifact.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

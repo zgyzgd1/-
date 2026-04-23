@@ -118,6 +118,9 @@ $tag = "v$Version"
 $assetName = "Timetable-v$Version.apk"
 $releaseAssetDir = Join-Path $repoRoot "app\build\release-assets"
 $releaseAssetPath = Join-Path $releaseAssetDir $assetName
+$releaseOutputDir = Join-Path $repoRoot "app\build\outputs\apk\release"
+$signedReleaseApkPath = Join-Path $releaseOutputDir "app-release.apk"
+$unsignedReleaseApkPath = Join-Path $releaseOutputDir "app-release-unsigned.apk"
 
 Set-PropertyValue -Path $propertiesPath -Name "APP_VERSION_NAME" -Value $Version
 Set-PropertyValue -Path $propertiesPath -Name "APP_VERSION_CODE" -Value $nextCode
@@ -130,13 +133,29 @@ try {
         }
     }
 
+    if (Test-Path $signedReleaseApkPath) {
+        Remove-Item $signedReleaseApkPath -Force
+    }
+    if (Test-Path $unsignedReleaseApkPath) {
+        Remove-Item $unsignedReleaseApkPath -Force
+    }
+
     & .\gradlew.bat assembleRelease
     if ($LASTEXITCODE -ne 0) {
         throw "Release build failed."
     }
+    if (Test-Path $unsignedReleaseApkPath) {
+        throw (
+            "assembleRelease produced an unsigned APK. Configure RELEASE_STORE_FILE, " +
+            "RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD before publishing."
+        )
+    }
+    if (-not (Test-Path $signedReleaseApkPath)) {
+        throw "Signed release APK not found at $signedReleaseApkPath."
+    }
 
     New-Item -ItemType Directory -Force $releaseAssetDir | Out-Null
-    Copy-Item "app\build\outputs\apk\release\app-release.apk" $releaseAssetPath -Force
+    Copy-Item $signedReleaseApkPath $releaseAssetPath -Force
 
     Invoke-Git -Args @("add", "gradle.properties", "app/build.gradle.kts")
     Invoke-Git -Args @("commit", "-m", "Release $tag")
@@ -163,7 +182,7 @@ try {
 Version $Version release.
 
 Asset:
-- ${assetName}: signed release APK for installation. The project currently uses the Android debug keystore for all GitHub releases so signing stays consistent until a dedicated release keystore is configured.
+- ${assetName}: signed release APK for installation. This release requires an explicitly configured release keystore.
 "@
             draft = $false
             prerelease = $false

@@ -3,6 +3,7 @@ package com.example.timetable.ui
 import android.app.Application
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.timetable.data.IcsCalendar
@@ -18,6 +19,9 @@ import com.example.timetable.data.resolveRecurrenceType
 import com.example.timetable.data.resolveWeekRule
 import com.example.timetable.data.weekIndexFromSemesterStart
 import com.example.timetable.notify.CourseReminderScheduler
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
@@ -33,6 +37,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private const val MAX_ICS_IMPORT_BYTES = 1024 * 1024
 
 class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -162,13 +168,30 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     private suspend fun readText(contentResolver: ContentResolver, uri: Uri): String {
         return withContext(Dispatchers.IO) {
             runCatching {
-                contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
-                    reader.readText()
+                val declaredSize = queryImportSize(contentResolver, uri)
+                if (declaredSize != null && declaredSize > MAX_ICS_IMPORT_BYTES) {
+                    throw IOException(importSizeLimitMessage())
+                }
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    readLimitedUtf8Text(stream, MAX_ICS_IMPORT_BYTES)
                 }.orEmpty()
             }.onFailure {
                 postMessage("读取文件失败：${it.message ?: "未知错误"}")
             }.getOrDefault("")
         }
+    }
+
+    private fun queryImportSize(contentResolver: ContentResolver, uri: Uri): Long? {
+        return runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (sizeIndex >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
+                    cursor.getLong(sizeIndex)
+                } else {
+                    null
+                }
+            }
+        }.getOrNull()
     }
 
     private suspend fun applyImportedEntries(imported: List<TimetableEntry>) {
@@ -297,6 +320,42 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _messages.emit(message)
         }
+    }
+}
+
+internal fun readLimitedUtf8Text(inputStream: InputStream, maxBytes: Int): String {
+    require(maxBytes > 0)
+
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    val output = ByteArrayOutputStream(minOf(maxBytes, DEFAULT_BUFFER_SIZE))
+    var totalRead = 0
+
+    while (true) {
+        val read = inputStream.read(buffer)
+        if (read < 0) break
+        if (read == 0) continue
+
+        totalRead += read
+        if (totalRead > maxBytes) {
+            throw IOException(importSizeLimitMessage(maxBytes))
+        }
+        output.write(buffer, 0, read)
+    }
+
+    return output.toString(Charsets.UTF_8.name()).removePrefix("\uFEFF")
+}
+
+internal fun importSizeLimitMessage(maxBytes: Int = MAX_ICS_IMPORT_BYTES): String {
+    return "ICS file exceeds the import limit of ${formatImportSize(maxBytes)}."
+}
+
+private fun formatImportSize(maxBytes: Int): String {
+    val kibibyte = 1024
+    val mebibyte = kibibyte * kibibyte
+    return when {
+        maxBytes >= mebibyte && maxBytes % mebibyte == 0 -> "${maxBytes / mebibyte} MB"
+        maxBytes >= kibibyte && maxBytes % kibibyte == 0 -> "${maxBytes / kibibyte} KB"
+        else -> "$maxBytes bytes"
     }
 }
 
