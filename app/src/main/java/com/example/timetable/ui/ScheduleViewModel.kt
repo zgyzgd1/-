@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -50,27 +49,15 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             initialValue = emptyList(),
         )
 
-    val entriesByDate: StateFlow<Map<LocalDate, List<TimetableEntry>>> = entries
-        .map { currentEntries ->
-            currentEntries
-                .mapNotNull { entry ->
-                    parseEntryDate(entry.date)?.let { date -> date to entry }
-                }
-                .groupBy(keySelector = { it.first }, valueTransform = { it.second })
-                .mapValues { (_, dayEntries) -> dayEntries.sortedBy { it.startMinutes } }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyMap(),
-        )
-
     private val _messages = MutableSharedFlow<String>()
     val messages = _messages.asSharedFlow()
 
     private val reminderSyncMutex = Mutex()
     private var reminderSyncGeneration = 0L
     private var reminderSyncJob: Job? = null
+    private val widgetRefreshMutex = Mutex()
+    private var widgetRefreshGeneration = 0L
+    private var widgetRefreshJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -79,7 +66,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             entries.collect { currentEntries ->
                 syncReminders(currentEntries)
-                TimetableWidgetUpdater.refreshAll(getApplication(), currentEntries)
+                refreshWidgets(currentEntries)
             }
         }
     }
@@ -316,6 +303,17 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             reminderSyncMutex.withLock {
                 if (generation != reminderSyncGeneration) return@launch
                 CourseReminderScheduler.sync(getApplication(), entriesList)
+            }
+        }
+    }
+
+    private fun refreshWidgets(entriesList: List<TimetableEntry>) {
+        val generation = ++widgetRefreshGeneration
+        widgetRefreshJob?.cancel()
+        widgetRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            widgetRefreshMutex.withLock {
+                if (generation != widgetRefreshGeneration) return@launch
+                TimetableWidgetUpdater.refreshAll(getApplication(), entriesList)
             }
         }
     }

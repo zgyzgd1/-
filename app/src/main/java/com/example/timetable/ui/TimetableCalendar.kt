@@ -48,7 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetable.data.TimetableEntry
-import com.example.timetable.data.occursOnDate
+import com.example.timetable.data.entriesByDateInRange
 import com.example.timetable.data.parseEntryDate
 import java.time.LocalDate
 import java.time.YearMonth
@@ -77,9 +77,16 @@ fun PerpetualCalendar(
         val start = visibleMonth.atDay(1)
         (0 until visibleMonth.lengthOfMonth()).map { start.plusDays(it.toLong()) }
     }
-    val datesWithEntries = remember(entries, daysInMonth) {
+    val entriesByVisibleDate = remember(entries, daysInMonth) {
+        if (daysInMonth.isEmpty()) {
+            emptyMap()
+        } else {
+            entriesByDateInRange(entries, daysInMonth.first(), daysInMonth.last())
+        }
+    }
+    val datesWithEntries = remember(entriesByVisibleDate, daysInMonth) {
         daysInMonth.associateWith { date ->
-            entries.any { entry -> occursOnDate(entry, date) }
+            entriesByVisibleDate[date].orEmpty().isNotEmpty()
         }
     }
     val listState = rememberLazyListState()

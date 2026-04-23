@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
 import com.example.timetable.data.formatMinutes
-import com.example.timetable.data.occursOnDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.WeekFields
@@ -67,7 +66,7 @@ fun WeekScheduleBoard(
     selectedDate: LocalDate,
     weekStart: LocalDate,
     weekEnd: LocalDate,
-    entries: List<TimetableEntry>,
+    entriesByDay: Map<LocalDate, List<TimetableEntry>>,
     slots: List<WeekTimeSlot>,
     cardAlpha: Float,
     cardHue: Float,
@@ -81,12 +80,8 @@ fun WeekScheduleBoard(
     val weekNumber = remember(selectedDate) {
         selectedDate.get(WeekFields.of(Locale.getDefault()).weekOfWeekBasedYear())
     }
-    val entriesByDay = remember(entries, days) {
-        days.associateWith { day ->
-            entries
-                .filter { entry -> occursOnDate(entry, day) }
-                .sortedBy { it.startMinutes }
-        }
+    val weekEntries = remember(entriesByDay, days) {
+        days.flatMap { day -> entriesByDay[day].orEmpty() }
     }
     val selectedDayEntries = remember(entriesByDay, selectedDate) {
         entriesByDay[selectedDate].orEmpty()
@@ -116,7 +111,7 @@ fun WeekScheduleBoard(
             weekStart = weekStart,
             weekEnd = weekEnd,
             weekNumber = weekNumber,
-            weekEntries = entries,
+            weekEntries = weekEntries,
             selectedDayEntries = selectedDayEntries,
             slotCount = slots.size,
             onCustomizeSlotCount = onCustomizeSlotCount,

@@ -84,9 +84,41 @@ internal fun entriesForDate(
     entries: List<TimetableEntry>,
     date: LocalDate,
 ): List<TimetableEntry> {
-    return entries
-        .asSequence()
-        .filter { occursOnDate(it, date) }
-        .sortedBy { it.startMinutes }
-        .toList()
+    return entriesByDateInRange(entries, date, date)[date].orEmpty()
+}
+
+internal fun entriesByDateInRange(
+    entries: List<TimetableEntry>,
+    startDate: LocalDate,
+    endDate: LocalDate,
+): Map<LocalDate, List<TimetableEntry>> {
+    if (endDate.isBefore(startDate)) return emptyMap()
+
+    val groupedEntries = linkedMapOf<LocalDate, MutableList<TimetableEntry>>()
+    var cursor = startDate
+    while (!cursor.isAfter(endDate)) {
+        groupedEntries[cursor] = mutableListOf()
+        cursor = cursor.plusDays(1)
+    }
+
+    entries.forEach { entry ->
+        val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: RecurrenceType.NONE
+        if (recurrence == RecurrenceType.NONE) {
+            val entryDate = parseEntryDate(entry.date) ?: return@forEach
+            if (entryDate in groupedEntries && occursOnDate(entry, entryDate)) {
+                groupedEntries.getValue(entryDate).add(entry)
+            }
+            return@forEach
+        }
+
+        var occurrenceDate = nextOccurrenceDate(entry, startDate) ?: return@forEach
+        while (!occurrenceDate.isAfter(endDate)) {
+            groupedEntries[occurrenceDate]?.add(entry)
+            occurrenceDate = nextOccurrenceDate(entry, occurrenceDate.plusDays(1)) ?: break
+        }
+    }
+
+    return groupedEntries.mapValues { (_, dayEntries) ->
+        dayEntries.sortedBy { it.startMinutes }
+    }
 }

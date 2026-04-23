@@ -4,6 +4,7 @@ import com.example.timetable.data.RecurrenceType
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekRule
 import com.example.timetable.data.WeekTimeSlot
+import com.example.timetable.data.findNextCourseSnapshot
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

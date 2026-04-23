@@ -60,23 +60,21 @@ import com.example.timetable.data.AppBackgroundMode
 import com.example.timetable.data.AppCacheManager
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.BackgroundImageManager
-import com.example.timetable.data.NextCourseSnapshot as SharedNextCourseSnapshot
+import com.example.timetable.data.NextCourseSnapshot
 import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
-import com.example.timetable.data.findNextCourseSnapshot as findSharedNextCourseSnapshot
+import com.example.timetable.data.entriesByDateInRange
+import com.example.timetable.data.findNextCourseSnapshot
 import com.example.timetable.data.inferFixedWeekScheduleConfig
 import com.example.timetable.data.syncWeekTimeSlotsWithEntryChange
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
 import com.example.timetable.data.formatDateLabel
 import com.example.timetable.data.formatMinutes
-import com.example.timetable.data.nextOccurrenceDate
-import com.example.timetable.data.occursOnDate
 import com.example.timetable.data.parseEntryDate
 import com.example.timetable.notify.CourseReminderScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -149,7 +147,7 @@ fun ScheduleApp(
     val selectedWeekEnd = remember(selectedWeekStart) { selectedWeekStart.plusDays(6) }
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
-    val nextCourseSnapshot = findSharedNextCourseSnapshot(
+    val nextCourseSnapshot = findNextCourseSnapshot(
         entries = entries,
         nowDate = today,
         nowMinutes = nowMinutes,
@@ -227,17 +225,18 @@ fun ScheduleApp(
         }
     }
 
-    val filteredEntries = remember(entries, selectedDate, isWeekMode, selectedWeekStart) {
+    val visibleEntriesByDate = remember(entries, isWeekMode, selectedLocalDate, selectedWeekStart, selectedWeekEnd) {
         if (isWeekMode) {
-            buildList {
-                for (offset in 0L..6L) {
-                    val date = selectedWeekStart.plusDays(offset)
-                    addAll(entriesForDate(entries, date))
-                }
-            }
+            entriesByDateInRange(entries, selectedWeekStart, selectedWeekEnd)
         } else {
-            entriesForDate(entries, selectedLocalDate)
+            entriesByDateInRange(entries, selectedLocalDate, selectedLocalDate)
         }
+    }
+    val selectedDayEntries = remember(visibleEntriesByDate, selectedLocalDate) {
+        visibleEntriesByDate[selectedLocalDate].orEmpty()
+    }
+    val filteredEntries = remember(selectedDayEntries) {
+        selectedDayEntries
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -276,7 +275,7 @@ fun ScheduleApp(
                         onClick = {
                             editingEntry = createQuickEntryTemplate(
                                 date = selectedLocalDate,
-                                existingEntries = entriesForDate(entries, selectedLocalDate),
+                                existingEntries = selectedDayEntries,
                             )
                         },
                     ) {
@@ -350,7 +349,7 @@ fun ScheduleApp(
                             selectedDate = selectedLocalDate,
                             weekStart = selectedWeekStart,
                             weekEnd = selectedWeekEnd,
-                            entries = filteredEntries,
+                            entriesByDay = visibleEntriesByDate,
                             slots = weekTimeSlots,
                             cardAlpha = weekCardAlpha,
                             cardHue = weekCardHue,
@@ -505,7 +504,7 @@ fun ScheduleApp(
                                     onAdd = {
                                         editingEntry = createQuickEntryTemplate(
                                             date = selectedLocalDate,
-                                            existingEntries = entriesForDate(entries, selectedLocalDate),
+                                            existingEntries = selectedDayEntries,
                                         )
                                     },
                                 )
@@ -773,99 +772,11 @@ internal fun nextWeekTimeSlot(previous: WeekTimeSlot): WeekTimeSlot? {
     return WeekTimeSlot(startMinutes = start, endMinutes = end)
 }
 
-internal data class NextCourseSnapshot(
-    val entry: TimetableEntry,
-    val occurrenceDate: LocalDate,
-    val statusText: String,
-)
-
 private data class PendingEntryConflict(
     val updatedEntry: TimetableEntry,
     val conflictEntry: TimetableEntry,
 )
-
-internal fun findNextCourseSnapshot(
-    entries: List<TimetableEntry>,
-    nowDate: LocalDate = LocalDate.now(),
-    nowMinutes: Int = LocalTime.now().let { it.hour * 60 + it.minute },
-): NextCourseSnapshot? {
-    val todayEntries = entriesForDate(entries, nowDate)
-
-    val ongoingEntry = todayEntries.firstOrNull { nowMinutes in it.startMinutes until it.endMinutes }
-    if (ongoingEntry != null) {
-        val remainingMinutes = (ongoingEntry.endMinutes - nowMinutes).coerceAtLeast(0)
-        val status = if (remainingMinutes > 0) {
-            "正在进行，距离下课 $remainingMinutes 分钟"
-        } else {
-            "正在进行"
-        }
-        return NextCourseSnapshot(
-            entry = ongoingEntry,
-            occurrenceDate = nowDate,
-            statusText = status,
-        )
-    }
-
-    val nextTodayEntry = todayEntries.firstOrNull { it.startMinutes >= nowMinutes }
-    if (nextTodayEntry != null) {
-        val waitMinutes = (nextTodayEntry.startMinutes - nowMinutes).coerceAtLeast(0)
-        val status = if (waitMinutes == 0) {
-            "即将开始"
-        } else {
-            "$waitMinutes 分钟后开始"
-        }
-        return NextCourseSnapshot(
-            entry = nextTodayEntry,
-            occurrenceDate = nowDate,
-            statusText = status,
-        )
-    }
-
-    val futureOccurrence = entries
-        .asSequence()
-        .mapNotNull { entry ->
-            val nextDate = nextOccurrenceDate(entry, nowDate.plusDays(1)) ?: return@mapNotNull null
-            entry to nextDate
-        }
-        .sortedWith(
-            compareBy<Pair<TimetableEntry, LocalDate>>(
-                { it.second },
-                { it.first.startMinutes },
-                { it.first.endMinutes },
-                { it.first.title },
-            ),
-        )
-        .firstOrNull()
-        ?: return null
-    val resolvedEntry = futureOccurrence.first
-    val resolvedDate = futureOccurrence.second
-
-    val dayOffset = ChronoUnit.DAYS.between(nowDate, resolvedDate).toInt().coerceAtLeast(0)
-    val dayLabel = when (dayOffset) {
-        0 -> "今天"
-        1 -> "明天"
-        2 -> "后天"
-        else -> "$dayOffset 天后"
-    }
-    return NextCourseSnapshot(
-        entry = resolvedEntry,
-        occurrenceDate = resolvedDate,
-        statusText = "$dayLabel ${formatMinutes(resolvedEntry.startMinutes)} 开始",
-    )
-}
-
-internal fun entriesForDate(
-    entries: List<TimetableEntry>,
-    date: LocalDate,
-): List<TimetableEntry> {
-    return entries
-        .asSequence()
-        .filter { occursOnDate(it, date) }
-        .sortedBy { it.startMinutes }
-        .toList()
-}
-
-private fun SharedNextCourseSnapshot.toCardState(): NextCourseCardState {
+private fun NextCourseSnapshot.toCardState(): NextCourseCardState {
     return NextCourseCardState(
         title = entry.title.ifBlank { "未命名课程" },
         timeRange = "${formatMinutes(entry.startMinutes)} - ${formatMinutes(entry.endMinutes)}",
