@@ -25,6 +25,13 @@ object IcsCalendar {
     private val multiValueKeys = setOf("EXDATE")
     private val systemZone: ZoneId
         get() = ZoneId.systemDefault()
+    private const val MAX_FOLDED_LINE_OCTETS = 75
+    private const val TIMETABLE_ENTRY_ID_KEY = "X-TIMETABLE-ENTRY-ID"
+    private const val TIMETABLE_RECURRENCE_KEY = "X-TIMETABLE-RECURRENCE"
+    private const val TIMETABLE_SEMESTER_START_KEY = "X-TIMETABLE-SEMESTER-START"
+    private const val TIMETABLE_WEEK_RULE_KEY = "X-TIMETABLE-WEEK-RULE"
+    private const val TIMETABLE_CUSTOM_WEEKS_KEY = "X-TIMETABLE-CUSTOM-WEEKS"
+    private const val TIMETABLE_SKIP_WEEKS_KEY = "X-TIMETABLE-SKIP-WEEKS"
 
     private data class ExportedEvent(
         val uid: String,
@@ -33,6 +40,23 @@ object IcsCalendar {
         val end: LocalDateTime,
         val rrule: String? = null,
         val exDates: List<LocalDateTime> = emptyList(),
+    )
+
+    private data class ParsedOccurrence(
+        val title: String,
+        val start: LocalDateTime,
+        val end: LocalDateTime,
+        val location: String,
+        val note: String,
+    )
+
+    private data class TimetableMetadata(
+        val entryId: String,
+        val recurrenceType: RecurrenceType,
+        val semesterStartDate: String = "",
+        val weekRule: WeekRule = WeekRule.ALL,
+        val customWeekList: String = "",
+        val skipWeekList: String = "",
     )
 
     /**
@@ -46,12 +70,12 @@ object IcsCalendar {
         val builder = StringBuilder()
 
         // 写入 ICS 文件头部信息
-        builder.appendLine("BEGIN:VCALENDAR")
-        builder.appendLine("VERSION:2.0")
-        builder.appendLine("PRODID:-//TimetableMinimal//CN")
-        builder.appendLine("CALSCALE:GREGORIAN")
-        builder.appendLine("X-WR-TIMEZONE:${systemZone.id}")
-        builder.appendLine("X-WR-CALNAME:${escapeText(calendarName)}")
+        appendIcsLine(builder, "BEGIN:VCALENDAR")
+        appendIcsLine(builder, "VERSION:2.0")
+        appendIcsLine(builder, "PRODID:-//TimetableMinimal//CN")
+        appendIcsLine(builder, "CALSCALE:GREGORIAN")
+        appendIcsLine(builder, "X-WR-TIMEZONE:${systemZone.id}")
+        appendIcsLine(builder, "X-WR-CALNAME:${escapeText(calendarName)}")
         val dtStamp = utcFormatter.format(OffsetDateTime.now(ZoneOffset.UTC))
 
         // 按星期和时间排序后遍历所有课程
@@ -61,29 +85,31 @@ object IcsCalendar {
             .sortedWith(compareBy<ExportedEvent> { it.start }.thenBy { it.entry.title })
             .forEach { event ->
                 // 写入事件详情
-                builder.appendLine("BEGIN:VEVENT")
-                builder.appendLine("UID:${event.uid}@timetable")
-                builder.appendLine("DTSTAMP:$dtStamp")
-                builder.appendLine("SUMMARY:${escapeText(event.entry.title)}")
+                appendIcsLine(builder, "BEGIN:VEVENT")
+                appendIcsLine(builder, "UID:${event.uid}@timetable")
+                appendIcsLine(builder, "DTSTAMP:$dtStamp")
+                appendIcsLine(builder, "SUMMARY:${escapeText(event.entry.title)}")
                 if (event.entry.location.isNotBlank()) {
-                    builder.appendLine("LOCATION:${escapeText(event.entry.location)}")
+                    appendIcsLine(builder, "LOCATION:${escapeText(event.entry.location)}")
                 }
                 if (event.entry.note.isNotBlank()) {
-                    builder.appendLine("DESCRIPTION:${escapeText(event.entry.note)}")
+                    appendIcsLine(builder, "DESCRIPTION:${escapeText(event.entry.note)}")
                 }
-                builder.appendLine("DTSTART;TZID=${systemZone.id}:${formatter.format(event.start)}")
-                builder.appendLine("DTEND;TZID=${systemZone.id}:${formatter.format(event.end)}")
-                event.rrule?.let { builder.appendLine("RRULE:$it") }
+                appendIcsLine(builder, "DTSTART;TZID=${systemZone.id}:${formatter.format(event.start)}")
+                appendIcsLine(builder, "DTEND;TZID=${systemZone.id}:${formatter.format(event.end)}")
+                appendTimetableMetadata(builder, event.entry)
+                event.rrule?.let { appendIcsLine(builder, "RRULE:$it") }
                 if (event.exDates.isNotEmpty()) {
-                    builder.appendLine(
+                    appendIcsLine(
+                        builder,
                         "EXDATE;TZID=${systemZone.id}:${event.exDates.joinToString(",") { formatter.format(it) }}",
                     )
                 }
-                builder.appendLine("END:VEVENT")
+                appendIcsLine(builder, "END:VEVENT")
             }
 
         // 写入 ICS 文件尾部
-        builder.appendLine("END:VCALENDAR")
+        appendIcsLine(builder, "END:VCALENDAR")
         return builder.toString()
     }
 
@@ -240,7 +266,7 @@ object IcsCalendar {
      * @return 解析后的课程条目列表
      */
     fun parse(content: String): List<TimetableEntry> {
-        val entries = mutableListOf<TimetableEntry>()
+        val eventFields = mutableListOf<Map<String, String>>()
         val lines = unfoldLines(content)  // 处理续行
         var insideEvent = false
         var current = LinkedHashMap<String, String>()
@@ -256,7 +282,7 @@ object IcsCalendar {
                 // 遇到事件结束标记
                 line.equals("END:VEVENT", ignoreCase = true) -> {
                     if (insideEvent) {
-                        entries += parseEventEntries(current)
+                        eventFields += current.toMap()
                     }
                     insideEvent = false
                 }
@@ -298,9 +324,7 @@ object IcsCalendar {
             }
         }
 
-        return entries.distinctBy {
-            "${it.title}|${it.date}|${it.startMinutes}|${it.endMinutes}|${it.location}|${it.note}"
-        }
+        return buildEntriesFromEventFields(eventFields)
     }
 
     /**
@@ -310,43 +334,29 @@ object IcsCalendar {
      * @return 解析成功的课程条目，失败返回 null
      */
     private fun parseEventEntries(fields: Map<String, String>): List<TimetableEntry> {
-        val title = fields["SUMMARY"]?.trim().orEmpty()
-        val startText = fields["DTSTART"] ?: return emptyList()
-        val endText = fields["DTEND"]
-        if (title.isBlank()) return emptyList()
-
-        val startTzid = fields["DTSTART_TZID"]
-        val endTzid = fields["DTEND_TZID"] ?: startTzid
-
-        // 解析开始和结束时间
-        val start = parseDateTime(startText, startTzid) ?: return emptyList()
-        val end = parseDateTime(endText ?: "", endTzid) ?: start.plusHours(1)
-        if (!end.isAfter(start)) return emptyList()
-
+        val occurrence = parseOccurrence(fields) ?: return emptyList()
         val uidBase = fields["UID"]?.trim().orEmpty().ifBlank { UUID.randomUUID().toString() }
-        val location = fields["LOCATION"].orEmpty()
-        val note = fields["DESCRIPTION"].orEmpty()
-        val exDates = parseExDates(fields, startTzid)
+        val exDates = parseExDates(fields, fields["DTSTART_TZID"])
 
-        val rrule = parseRRule(fields["RRULE"].orEmpty(), startTzid)
+        val rrule = parseRRule(fields["RRULE"].orEmpty(), fields["DTSTART_TZID"])
         if (rrule == null) {
-            if (normalizeMinute(start) in exDates) return emptyList()
+            if (normalizeMinute(occurrence.start) in exDates) return emptyList()
             return buildEntry(
                 id = uidBase,
-                title = title,
-                start = start,
-                end = end,
-                location = location,
-                note = note,
+                title = occurrence.title,
+                start = occurrence.start,
+                end = occurrence.end,
+                location = occurrence.location,
+                note = occurrence.note,
             )?.let(::listOf).orEmpty()
         }
 
         val interval = rrule.interval.coerceAtLeast(1)
         val result = mutableListOf<TimetableEntry>()
-        val durationMinutes = java.time.Duration.between(start, end).toMinutes().coerceAtLeast(1)
+        val durationMinutes = java.time.Duration.between(occurrence.start, occurrence.end).toMinutes().coerceAtLeast(1)
 
         if (rrule.freq == "WEEKLY" && rrule.byDays.isNotEmpty()) {
-            var weekAnchor = start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            var weekAnchor = occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             var emitted = 0
             var reachedUntil = false
 
@@ -358,22 +368,22 @@ object IcsCalendar {
                     if (rrule.count != null && emitted >= rrule.count) break
 
                     val occurrenceDate = weekAnchor.plusDays((day.value - 1).toLong())
-                    val occurrenceStart = LocalDateTime.of(occurrenceDate, start.toLocalTime())
-                    if (occurrenceStart.isBefore(start)) continue
-                    if (rrule.until != null && occurrenceStart.isAfter(rrule.until)) {
+                    val recurringStart = LocalDateTime.of(occurrenceDate, occurrence.start.toLocalTime())
+                    if (recurringStart.isBefore(occurrence.start)) continue
+                    if (rrule.until != null && recurringStart.isAfter(rrule.until)) {
                         reachedUntil = true
                         break
                     }
-                    if (normalizeMinute(occurrenceStart) in exDates) continue
+                    if (normalizeMinute(recurringStart) in exDates) continue
 
-                    val occurrenceEnd = occurrenceStart.plusMinutes(durationMinutes)
+                    val occurrenceEnd = recurringStart.plusMinutes(durationMinutes)
                     buildEntry(
                         id = "$uidBase#$emitted",
-                        title = title,
-                        start = occurrenceStart,
+                        title = occurrence.title,
+                        start = recurringStart,
                         end = occurrenceEnd,
-                        location = location,
-                        note = note,
+                        location = occurrence.location,
+                        note = occurrence.note,
                     )?.let {
                         result += it
                         emitted++
@@ -382,15 +392,15 @@ object IcsCalendar {
 
                 if (reachedUntil) break
                 weekAnchor = weekAnchor.plusWeeks(interval.toLong())
-                val nextWeekFirstStart = LocalDateTime.of(weekAnchor, start.toLocalTime())
+                val nextWeekFirstStart = LocalDateTime.of(weekAnchor, occurrence.start.toLocalTime())
                 if (rrule.until != null && nextWeekFirstStart.isAfter(rrule.until)) break
             }
 
             return result
         }
 
-        var occurrenceStart = start
-        var occurrenceEnd = end
+        var occurrenceStart = occurrence.start
+        var occurrenceEnd = occurrence.end
         var occurrenceIndex = 0
 
         // 用次数上限保护异常 RRULE，避免死循环
@@ -401,11 +411,11 @@ object IcsCalendar {
             if (normalizeMinute(occurrenceStart) !in exDates) {
                 buildEntry(
                     id = "$uidBase#$occurrenceIndex",
-                    title = title,
+                    title = occurrence.title,
                     start = occurrenceStart,
                     end = occurrenceEnd,
-                    location = location,
-                    note = note,
+                    location = occurrence.location,
+                    note = occurrence.note,
                 )?.let(result::add)
             }
 
@@ -527,6 +537,166 @@ object IcsCalendar {
         val count: Int?,
         val byDays: List<DayOfWeek>,
     )
+
+    private fun appendTimetableMetadata(builder: StringBuilder, entry: TimetableEntry) {
+        appendIcsLine(builder, "$TIMETABLE_ENTRY_ID_KEY:${escapeText(entry.id)}")
+        appendIcsLine(builder, "$TIMETABLE_RECURRENCE_KEY:${entry.recurrenceType}")
+        val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: RecurrenceType.NONE
+        if (recurrence != RecurrenceType.WEEKLY) return
+
+        appendIcsLine(builder, "$TIMETABLE_SEMESTER_START_KEY:${escapeText(entry.semesterStartDate)}")
+        appendIcsLine(builder, "$TIMETABLE_WEEK_RULE_KEY:${entry.weekRule}")
+        appendIcsLine(builder, "$TIMETABLE_CUSTOM_WEEKS_KEY:${escapeText(entry.customWeekList)}")
+        appendIcsLine(builder, "$TIMETABLE_SKIP_WEEKS_KEY:${escapeText(entry.skipWeekList)}")
+    }
+
+    private fun appendIcsLine(builder: StringBuilder, line: String) {
+        if (line.isEmpty()) {
+            builder.append("\r\n")
+            return
+        }
+
+        var currentOctets = 0
+        line.forEach { char ->
+            val charOctets = char.toString().toByteArray(Charsets.UTF_8).size
+            if (currentOctets + charOctets > MAX_FOLDED_LINE_OCTETS) {
+                builder.append("\r\n ")
+                currentOctets = 1
+            }
+            builder.append(char)
+            currentOctets += charOctets
+        }
+        builder.append("\r\n")
+    }
+
+    private fun buildEntriesFromEventFields(eventFields: List<Map<String, String>>): List<TimetableEntry> {
+        if (eventFields.isEmpty()) return emptyList()
+
+        val entries = mutableListOf<TimetableEntry>()
+        val handled = BooleanArray(eventFields.size)
+        val indexedGroups = eventFields.withIndex()
+            .mapNotNull { indexed ->
+                indexed.value[TIMETABLE_ENTRY_ID_KEY]
+                    ?.trim()
+                    ?.ifBlank { null }
+                    ?.let { it to indexed }
+            }
+            .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+
+        indexedGroups.values.forEach { group ->
+            val parsed = parseMetadataEntryGroup(group.map { it.value }) ?: return@forEach
+            entries += parsed
+            group.forEach { handled[it.index] = true }
+        }
+
+        eventFields.forEachIndexed { index, fields ->
+            if (!handled[index]) {
+                entries += parseEventEntries(fields)
+            }
+        }
+
+        return entries.distinctBy { it.id }
+    }
+
+    private fun parseMetadataEntryGroup(fieldGroup: List<Map<String, String>>): TimetableEntry? {
+        val metadata = parseTimetableMetadata(fieldGroup.firstOrNull() ?: return null) ?: return null
+        if (fieldGroup.size > 1 && metadata.recurrenceType != RecurrenceType.WEEKLY) return null
+
+        val parsedOccurrences = fieldGroup
+            .mapNotNull(::parseOccurrence)
+            .sortedBy { it.start }
+        if (parsedOccurrences.size != fieldGroup.size || parsedOccurrences.isEmpty()) return null
+
+        val firstOccurrence = parsedOccurrences.first()
+        val sameIdentity = parsedOccurrences.all { occurrence ->
+            occurrence.title == firstOccurrence.title &&
+                occurrence.location == firstOccurrence.location &&
+                occurrence.note == firstOccurrence.note &&
+                occurrence.start.toLocalTime() == firstOccurrence.start.toLocalTime() &&
+                occurrence.end.toLocalTime() == firstOccurrence.end.toLocalTime()
+        }
+        if (!sameIdentity) return null
+
+        return buildEntryFromMetadata(
+            metadata = metadata,
+            occurrence = firstOccurrence,
+        )
+    }
+
+    private fun parseTimetableMetadata(fields: Map<String, String>): TimetableMetadata? {
+        val entryId = fields[TIMETABLE_ENTRY_ID_KEY]?.trim().orEmpty().ifBlank { return null }
+        val recurrenceType = resolveRecurrenceType(fields[TIMETABLE_RECURRENCE_KEY].orEmpty()) ?: return null
+        if (recurrenceType != RecurrenceType.WEEKLY) {
+            return TimetableMetadata(
+                entryId = entryId,
+                recurrenceType = recurrenceType,
+            )
+        }
+
+        val semesterStartDate = fields[TIMETABLE_SEMESTER_START_KEY]?.trim().orEmpty()
+        val weekRule = resolveWeekRule(fields[TIMETABLE_WEEK_RULE_KEY].orEmpty()) ?: return null
+        val customWeekList = fields[TIMETABLE_CUSTOM_WEEKS_KEY].orEmpty()
+        val skipWeekList = fields[TIMETABLE_SKIP_WEEKS_KEY].orEmpty()
+        if (semesterStartDate.isBlank() || parseEntryDate(semesterStartDate) == null) return null
+        if (parseWeekList(customWeekList) == null || parseWeekList(skipWeekList) == null) return null
+
+        return TimetableMetadata(
+            entryId = entryId,
+            recurrenceType = recurrenceType,
+            semesterStartDate = semesterStartDate,
+            weekRule = weekRule,
+            customWeekList = customWeekList,
+            skipWeekList = skipWeekList,
+        )
+    }
+
+    private fun buildEntryFromMetadata(
+        metadata: TimetableMetadata,
+        occurrence: ParsedOccurrence,
+    ): TimetableEntry? {
+        return runCatching {
+            TimetableEntry(
+                id = metadata.entryId,
+                title = occurrence.title,
+                date = occurrence.start.toLocalDate().toString(),
+                dayOfWeek = occurrence.start.dayOfWeek.value,
+                startMinutes = occurrence.start.hour * 60 + occurrence.start.minute,
+                endMinutes = if (occurrence.end.toLocalDate().isAfter(occurrence.start.toLocalDate())) {
+                    24 * 60
+                } else {
+                    occurrence.end.hour * 60 + occurrence.end.minute
+                },
+                location = occurrence.location,
+                note = occurrence.note,
+                recurrenceType = metadata.recurrenceType.name,
+                semesterStartDate = metadata.semesterStartDate,
+                weekRule = metadata.weekRule.name,
+                customWeekList = metadata.customWeekList,
+                skipWeekList = metadata.skipWeekList,
+            )
+        }.getOrNull()
+    }
+
+    private fun parseOccurrence(fields: Map<String, String>): ParsedOccurrence? {
+        val title = fields["SUMMARY"]?.trim().orEmpty()
+        val startText = fields["DTSTART"] ?: return null
+        val endText = fields["DTEND"]
+        if (title.isBlank()) return null
+
+        val startTzid = fields["DTSTART_TZID"]
+        val endTzid = fields["DTEND_TZID"] ?: startTzid
+        val start = parseDateTime(startText, startTzid) ?: return null
+        val end = parseDateTime(endText ?: "", endTzid) ?: start.plusHours(1)
+        if (!end.isAfter(start)) return null
+
+        return ParsedOccurrence(
+            title = title,
+            start = start,
+            end = end,
+            location = fields["LOCATION"].orEmpty(),
+            note = fields["DESCRIPTION"].orEmpty(),
+        )
+    }
 
     /**
      * 处理 ICS 文件的续行（unfold lines）

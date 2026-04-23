@@ -84,6 +84,33 @@ class IcsCalendarTest {
     }
 
     @Test
+    fun writeWeeklyEntryRoundTripsRecurringMetadata() {
+        val entry = TimetableEntry(
+            id = "weekly-entry",
+            title = "Operating Systems",
+            date = "2026-03-02",
+            dayOfWeek = 1,
+            startMinutes = 8 * 60,
+            endMinutes = 9 * 60,
+            recurrenceType = RecurrenceType.WEEKLY.name,
+            semesterStartDate = "2026-03-02",
+            weekRule = WeekRule.ODD.name,
+            skipWeekList = "3,7",
+        )
+
+        val text = IcsCalendar.write(listOf(entry))
+        val parsed = IcsCalendar.parse(text)
+
+        assertTrue(text.contains("X-TIMETABLE-ENTRY-ID:weekly-entry"))
+        assertEquals(1, parsed.size)
+        assertEquals(entry.id, parsed.single().id)
+        assertEquals(entry.recurrenceType, parsed.single().recurrenceType)
+        assertEquals(entry.semesterStartDate, parsed.single().semesterStartDate)
+        assertEquals(entry.weekRule, parsed.single().weekRule)
+        assertEquals(entry.skipWeekList, parsed.single().skipWeekList)
+    }
+
+    @Test
     fun writeOddWeekEntryIncludesIntervalAndExDate() {
         val entry = TimetableEntry(
             id = "odd-entry",
@@ -107,7 +134,7 @@ class IcsCalendarTest {
     }
 
     @Test
-    fun writeCustomWeekEntryExportsEveryOccurrence() {
+    fun writeCustomWeekEntryExportsEveryOccurrenceAndRoundTripsRecurringEntry() {
         val entry = TimetableEntry(
             id = "custom-entry",
             title = "Compiler",
@@ -127,10 +154,14 @@ class IcsCalendarTest {
 
         assertFalse(text.contains("RRULE:"))
         assertEquals(2, Regex("BEGIN:VEVENT").findAll(text).count())
-        assertEquals(
-            listOf(LocalDate.of(2026, 3, 2), LocalDate.of(2026, 3, 30)).map(LocalDate::toString),
-            parsed.map { it.date },
-        )
+        assertEquals(1, parsed.size)
+        assertEquals(entry.id, parsed.single().id)
+        assertEquals(entry.date, parsed.single().date)
+        assertEquals(entry.recurrenceType, parsed.single().recurrenceType)
+        assertEquals(entry.semesterStartDate, parsed.single().semesterStartDate)
+        assertEquals(entry.weekRule, parsed.single().weekRule)
+        assertEquals(entry.customWeekList, parsed.single().customWeekList)
+        assertEquals(entry.skipWeekList, parsed.single().skipWeekList)
     }
 
     @Test
@@ -153,5 +184,52 @@ class IcsCalendarTest {
 
         assertEquals(1, parsed.size)
         assertEquals("2026-04-13", parsed.single().date)
+    }
+
+    @Test
+    fun writeFoldsLongUtf8LinesAndRemainsParsable() {
+        val entry = TimetableEntry(
+            id = "long-note",
+            title = "软件工程基础",
+            date = "2026-04-15",
+            dayOfWeek = 3,
+            startMinutes = 8 * 60,
+            endMinutes = 9 * 60,
+            note = "这是一个很长的备注。".repeat(20),
+        )
+
+        val text = IcsCalendar.write(listOf(entry))
+        val parsed = IcsCalendar.parse(text)
+
+        assertTrue(text.contains("\r\n "))
+        assertEquals(1, parsed.size)
+        assertEquals(entry.note, parsed.single().note)
+    }
+
+    @Test
+    fun parseKeepsEventsWithSameContentButDifferentUid() {
+        val content = """
+            BEGIN:VCALENDAR
+            VERSION:2.0
+            PRODID:-//Test//CN
+            BEGIN:VEVENT
+            UID:event-a
+            SUMMARY:Database
+            DTSTART;TZID=Asia/Shanghai:20260413T080000
+            DTEND;TZID=Asia/Shanghai:20260413T090000
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:event-b
+            SUMMARY:Database
+            DTSTART;TZID=Asia/Shanghai:20260413T080000
+            DTEND;TZID=Asia/Shanghai:20260413T090000
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        val parsed = IcsCalendar.parse(content)
+
+        assertEquals(2, parsed.size)
+        assertEquals(setOf("event-a", "event-b"), parsed.map { it.id }.toSet())
     }
 }
