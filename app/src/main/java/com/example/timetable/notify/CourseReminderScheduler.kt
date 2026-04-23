@@ -11,10 +11,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.timetable.data.TimetableEntry
+import com.example.timetable.data.nextOccurrenceDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -28,12 +30,15 @@ object CourseReminderScheduler {
     const val EXTRA_LOCATION = "extra_location"
     const val EXTRA_DATE = "extra_date"
     const val EXTRA_START_MINUTES = "extra_start_minutes"
+    const val EXTRA_REMINDER_MINUTES = "extra_reminder_minutes"
 
     private const val ACTION_COURSE_REMINDER = "com.example.timetable.ACTION_COURSE_REMINDER"
     private const val PREFS_NAME = "course_reminder_prefs"
     private const val KEY_CODES = "scheduled_codes"
     private const val KEY_REMINDER_MINUTES = "reminder_minutes"
     private const val DEFAULT_REMINDER_MINUTES = 20
+    private const val MIN_REMINDER_MINUTES = 1
+    private const val MAX_REMINDER_MINUTES = 180
     private val reminderOptions = listOf(5, 10, 20, 30)
     private val resyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -41,8 +46,14 @@ object CourseReminderScheduler {
         get() = ZoneId.systemDefault()
 
     internal data class SchedulePlan(
-        val newSchedules: Map<Int, Pair<Long, TimetableEntry>>,
+        val newSchedules: Map<Int, ScheduledReminder>,
         val codesToCancel: Set<Int>,
+    )
+
+    internal data class ScheduledReminder(
+        val triggerAtMillis: Long,
+        val entry: TimetableEntry,
+        val occurrenceDate: LocalDate,
     )
 
     @Synchronized
@@ -66,17 +77,17 @@ object CourseReminderScheduler {
             cancelAlarm(appContext, alarmManager, code)
         }
 
-        // 为当前需要触发的课程全部重设闹钟，保证同 requestCode 的文案也能更新。
         plan.newSchedules.forEach { (requestCode, scheduled) ->
-            val (triggerAtMillis, entry) = scheduled
             val pendingIntent = createPendingIntent(
                 context = appContext,
-                entry = entry,
+                entry = scheduled.entry,
+                occurrenceDate = scheduled.occurrenceDate,
+                reminderMinutes = reminderMinutes,
                 requestCode = requestCode,
                 includeNoCreateFlag = false,
             ) ?: return@forEach
 
-            scheduleAlarm(alarmManager, triggerAtMillis, pendingIntent)
+            scheduleAlarm(alarmManager, scheduled.triggerAtMillis, pendingIntent)
         }
 
         prefs.edit().putStringSet(KEY_CODES, plan.newSchedules.keys.map { it.toString() }.toSet()).apply()
@@ -88,30 +99,28 @@ object CourseReminderScheduler {
         nowMillis: Long,
         oldCodes: Set<Int>,
     ): SchedulePlan {
-        val newSchedules = mutableMapOf<Int, Pair<Long, TimetableEntry>>()
-
-        // 仅寻找距离现在最近的"下一个"（或者同时间的几个）课程，实现接力式定闹钟
+        val newSchedules = mutableMapOf<Int, ScheduledReminder>()
         var nextTriggerAtMillis: Long? = null
-        val nextEntries = mutableListOf<TimetableEntry>()
+        val nextEntries = mutableListOf<ScheduledReminder>()
 
         entries.forEach { entry ->
-            val triggerAtMillis = computeTriggerAtMillis(entry, reminderMinutes) ?: return@forEach
-            // 只看未来的课程，过去的不定闹钟
+            val scheduled = computeNextReminder(entry, reminderMinutes, nowMillis) ?: return@forEach
+            val triggerAtMillis = scheduled.triggerAtMillis
             if (triggerAtMillis <= nowMillis) return@forEach
 
             if (nextTriggerAtMillis == null || triggerAtMillis < nextTriggerAtMillis) {
                 nextTriggerAtMillis = triggerAtMillis
                 nextEntries.clear()
-                nextEntries.add(entry)
+                nextEntries.add(scheduled)
             } else if (triggerAtMillis == nextTriggerAtMillis) {
-                nextEntries.add(entry)
+                nextEntries.add(scheduled)
             }
         }
 
         nextTriggerAtMillis?.let { scheduledTriggerAtMillis ->
-            nextEntries.forEach { entry ->
-                val requestCode = requestCodeFor(entry, reminderMinutes)
-                newSchedules[requestCode] = scheduledTriggerAtMillis to entry
+            nextEntries.forEach { scheduled ->
+                val requestCode = requestCodeFor(scheduled.entry, reminderMinutes)
+                newSchedules[requestCode] = scheduled.copy(triggerAtMillis = scheduledTriggerAtMillis)
             }
         }
 
@@ -125,16 +134,20 @@ object CourseReminderScheduler {
     fun getReminderMinutes(context: Context): Int {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val stored = prefs.getInt(KEY_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)
-        return stored.takeIf { it in reminderOptions } ?: DEFAULT_REMINDER_MINUTES
+        return stored.takeIf(::isReminderMinutesValid) ?: DEFAULT_REMINDER_MINUTES
     }
 
     fun setReminderMinutes(context: Context, minutes: Int) {
-        if (minutes !in reminderOptions) return
+        if (!isReminderMinutesValid(minutes)) return
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putInt(KEY_REMINDER_MINUTES, minutes).apply()
     }
 
     fun reminderMinuteOptions(): List<Int> = reminderOptions
+
+    fun isReminderMinutesValid(minutes: Int): Boolean = minutes in MIN_REMINDER_MINUTES..MAX_REMINDER_MINUTES
+
+    fun defaultReminderMinutes(): Int = DEFAULT_REMINDER_MINUTES
 
     fun resyncFromStorage(context: Context, onComplete: (() -> Unit)? = null) {
         val appContext = context.applicationContext
@@ -171,11 +184,39 @@ object CourseReminderScheduler {
         manager.createNotificationChannel(channel)
     }
 
-    private fun computeTriggerAtMillis(entry: TimetableEntry, reminderMinutes: Int): Long? {
+    private fun computeNextReminder(
+        entry: TimetableEntry,
+        reminderMinutes: Int,
+        nowMillis: Long,
+    ): ScheduledReminder? {
+        val nowDate = Instant.ofEpochMilli(nowMillis).atZone(systemZone).toLocalDate()
+        val firstDate = nextOccurrenceDate(entry, nowDate) ?: return null
+        val firstTriggerAtMillis = computeTriggerAtMillis(firstDate, entry.startMinutes, reminderMinutes) ?: return null
+        if (firstTriggerAtMillis > nowMillis) {
+            return ScheduledReminder(
+                triggerAtMillis = firstTriggerAtMillis,
+                entry = entry,
+                occurrenceDate = firstDate,
+            )
+        }
+
+        val fallbackDate = nextOccurrenceDate(entry, firstDate.plusDays(1)) ?: return null
+        val fallbackTriggerAtMillis = computeTriggerAtMillis(fallbackDate, entry.startMinutes, reminderMinutes) ?: return null
+        return ScheduledReminder(
+            triggerAtMillis = fallbackTriggerAtMillis,
+            entry = entry,
+            occurrenceDate = fallbackDate,
+        ).takeIf { it.triggerAtMillis > nowMillis }
+    }
+
+    private fun computeTriggerAtMillis(
+        occurrenceDate: LocalDate,
+        startMinutes: Int,
+        reminderMinutes: Int,
+    ): Long? {
         return runCatching {
-            val date = LocalDate.parse(entry.date)
-            val start = LocalTime.of(entry.startMinutes / 60, entry.startMinutes % 60)
-            date.atTime(start)
+            val start = LocalTime.of(startMinutes / 60, startMinutes % 60)
+            occurrenceDate.atTime(start)
                 .atZone(systemZone)
                 .minusMinutes(reminderMinutes.toLong())
                 .toInstant()
@@ -208,6 +249,8 @@ object CourseReminderScheduler {
     private fun createPendingIntent(
         context: Context,
         entry: TimetableEntry,
+        occurrenceDate: LocalDate,
+        reminderMinutes: Int,
         requestCode: Int,
         includeNoCreateFlag: Boolean,
     ): PendingIntent? {
@@ -216,8 +259,9 @@ object CourseReminderScheduler {
             putExtra(EXTRA_REQUEST_CODE, requestCode)
             putExtra(EXTRA_TITLE, entry.title)
             putExtra(EXTRA_LOCATION, entry.location)
-            putExtra(EXTRA_DATE, entry.date)
+            putExtra(EXTRA_DATE, occurrenceDate.toString())
             putExtra(EXTRA_START_MINUTES, entry.startMinutes)
+            putExtra(EXTRA_REMINDER_MINUTES, reminderMinutes)
         }
 
         var flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT

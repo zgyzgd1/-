@@ -3,6 +3,7 @@ package com.example.timetable.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -46,10 +48,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.timetable.data.AppBackgroundMode
+import com.example.timetable.notify.CourseReminderScheduler
 
 @Composable
 fun HeroSection(
@@ -384,11 +388,26 @@ private fun ReminderPickerDialog(
     onSelect: (Int) -> Unit,
     onEnableNotifications: () -> Unit,
 ) {
+    var customReminderText by remember(reminderMinutes) {
+        mutableStateOf(reminderMinutes.takeIf { it !in reminderOptions }?.toString().orEmpty())
+    }
+    var customReminderError by remember { mutableStateOf<String?>(null) }
+
+    fun submitCustomReminder() {
+        val parsedMinutes = customReminderText.toIntOrNull()
+        if (parsedMinutes == null || !CourseReminderScheduler.isReminderMinutesValid(parsedMinutes)) {
+            customReminderError = "请输入 1-180 分钟"
+            return
+        }
+        customReminderError = null
+        onSelect(parsedMinutes)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("课前提醒时间", style = MaterialTheme.typography.titleMedium) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = "选择课程开始前多久接收提醒通知",
                     style = MaterialTheme.typography.bodySmall,
@@ -417,6 +436,32 @@ private fun ReminderPickerDialog(
                             ) { Text("${option}m") }
                         }
                     }
+                }
+                Text(
+                    text = "也可以输入 1-180 分钟的自定义提醒时间",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = customReminderText,
+                    onValueChange = { value ->
+                        customReminderText = value.filter { it.isDigit() }.take(3)
+                        customReminderError = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("自定义分钟") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    isError = customReminderError != null,
+                    supportingText = {
+                        Text(customReminderError ?: "输入后点“保存自定义提醒”生效")
+                    },
+                )
+                OutlinedButton(
+                    onClick = ::submitCustomReminder,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("保存自定义提醒")
                 }
             }
         },

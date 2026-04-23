@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
 import com.example.timetable.data.formatMinutes
+import com.example.timetable.data.occursOnDate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.WeekFields
@@ -76,11 +77,12 @@ fun WeekScheduleBoard(
     val weekNumber = remember(selectedDate) {
         selectedDate.get(WeekFields.of(Locale.getDefault()).weekOfWeekBasedYear())
     }
-    val entriesByDay = remember(entries) {
-        entries
-            .mapNotNull { entry -> entryDate(entry)?.let { date -> date to entry } }
-            .groupBy(keySelector = { it.first }, valueTransform = { it.second })
-            .mapValues { (_, dayEntries) -> dayEntries.sortedBy { it.startMinutes } }
+    val entriesByDay = remember(entries, days) {
+        days.associateWith { day ->
+            entries
+                .filter { entry -> occursOnDate(entry, day) }
+                .sortedBy { it.startMinutes }
+        }
     }
     val selectedDayEntries = remember(entriesByDay, selectedDate) {
         entriesByDay[selectedDate].orEmpty()
@@ -585,8 +587,6 @@ private data class TimeAnchor(
     val minute: Int,
     val positionPx: Float,
 )
-
-private fun entryDate(entry: TimetableEntry): LocalDate? = com.example.timetable.data.parseEntryDate(entry.date)
 
 internal fun chineseWeekday(dayOfWeek: DayOfWeek): String = when (dayOfWeek) {
     DayOfWeek.MONDAY -> "一"

@@ -26,6 +26,15 @@ object IcsCalendar {
     private val systemZone: ZoneId
         get() = ZoneId.systemDefault()
 
+    private data class ExportedEvent(
+        val uid: String,
+        val entry: TimetableEntry,
+        val start: LocalDateTime,
+        val end: LocalDateTime,
+        val rrule: String? = null,
+        val exDates: List<LocalDateTime> = emptyList(),
+    )
+
     /**
      * 将课程列表写入 ICS 格式的字符串
      *
@@ -48,35 +57,180 @@ object IcsCalendar {
         // 按星期和时间排序后遍历所有课程
         entries
             .sortedWith(compareBy<TimetableEntry> { it.date }.thenBy { it.startMinutes })
-            .forEach { entry ->
-                // 计算课程的具体日期和时间
-                val eventDate = LocalDate.parse(entry.date)
-                val start = eventDate.atTime(entry.startMinutes / 60, entry.startMinutes % 60)
-                val end = if (entry.endMinutes == 24 * 60) {
-                    eventDate.plusDays(1).atStartOfDay()
-                } else {
-                    eventDate.atTime(entry.endMinutes / 60, entry.endMinutes % 60)
-                }
-
+            .flatMap(::buildEventsForExport)
+            .sortedWith(compareBy<ExportedEvent> { it.start }.thenBy { it.entry.title })
+            .forEach { event ->
                 // 写入事件详情
                 builder.appendLine("BEGIN:VEVENT")
-                builder.appendLine("UID:${entry.id}@timetable")
+                builder.appendLine("UID:${event.uid}@timetable")
                 builder.appendLine("DTSTAMP:$dtStamp")
-                builder.appendLine("SUMMARY:${escapeText(entry.title)}")
-                if (entry.location.isNotBlank()) {
-                    builder.appendLine("LOCATION:${escapeText(entry.location)}")
+                builder.appendLine("SUMMARY:${escapeText(event.entry.title)}")
+                if (event.entry.location.isNotBlank()) {
+                    builder.appendLine("LOCATION:${escapeText(event.entry.location)}")
                 }
-                if (entry.note.isNotBlank()) {
-                    builder.appendLine("DESCRIPTION:${escapeText(entry.note)}")
+                if (event.entry.note.isNotBlank()) {
+                    builder.appendLine("DESCRIPTION:${escapeText(event.entry.note)}")
                 }
-                builder.appendLine("DTSTART;TZID=${systemZone.id}:${formatter.format(start)}")
-                builder.appendLine("DTEND;TZID=${systemZone.id}:${formatter.format(end)}")
+                builder.appendLine("DTSTART;TZID=${systemZone.id}:${formatter.format(event.start)}")
+                builder.appendLine("DTEND;TZID=${systemZone.id}:${formatter.format(event.end)}")
+                event.rrule?.let { builder.appendLine("RRULE:$it") }
+                if (event.exDates.isNotEmpty()) {
+                    builder.appendLine(
+                        "EXDATE;TZID=${systemZone.id}:${event.exDates.joinToString(",") { formatter.format(it) }}",
+                    )
+                }
                 builder.appendLine("END:VEVENT")
             }
 
         // 写入 ICS 文件尾部
         builder.appendLine("END:VCALENDAR")
         return builder.toString()
+    }
+
+    private fun buildEventsForExport(entry: TimetableEntry): List<ExportedEvent> {
+        val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: RecurrenceType.NONE
+        if (recurrence != RecurrenceType.WEEKLY) {
+            return buildSingleEventForExport(entry)?.let(::listOf).orEmpty()
+        }
+
+        return when (resolveWeekRule(entry.weekRule) ?: WeekRule.ALL) {
+            WeekRule.CUSTOM -> buildCustomWeeklyEventsForExport(entry)
+            WeekRule.ALL -> buildRepeatingWeeklyEventForExport(entry, WeekRule.ALL)?.let(::listOf).orEmpty()
+            WeekRule.ODD -> buildRepeatingWeeklyEventForExport(entry, WeekRule.ODD)?.let(::listOf).orEmpty()
+            WeekRule.EVEN -> buildRepeatingWeeklyEventForExport(entry, WeekRule.EVEN)?.let(::listOf).orEmpty()
+        }
+    }
+
+    private fun buildSingleEventForExport(
+        entry: TimetableEntry,
+        uid: String = entry.id,
+        occurrenceDate: LocalDate? = null,
+    ): ExportedEvent? {
+        val resolvedDate = occurrenceDate ?: parseEntryDate(entry.date) ?: return null
+        val start = occurrenceStartForExport(resolvedDate, entry.startMinutes) ?: return null
+        val end = occurrenceEndForExport(resolvedDate, entry.endMinutes) ?: return null
+        return ExportedEvent(
+            uid = uid,
+            entry = entry,
+            start = start,
+            end = end,
+        )
+    }
+
+    private fun buildRepeatingWeeklyEventForExport(
+        entry: TimetableEntry,
+        weekRule: WeekRule,
+    ): ExportedEvent? {
+        val byDay = dayOfWeekToken(entry.dayOfWeek) ?: return buildSingleEventForExport(entry)
+        val baseEvent = buildSingleEventForExport(entry) ?: return null
+        val rule = buildString {
+            append("FREQ=WEEKLY;")
+            if (weekRule != WeekRule.ALL) {
+                append("INTERVAL=2;")
+            }
+            append("BYDAY=$byDay")
+        }
+        return baseEvent.copy(
+            rrule = rule,
+            exDates = skippedOccurrenceDateTimesForExport(entry, weekRule),
+        )
+    }
+
+    private fun buildCustomWeeklyEventsForExport(entry: TimetableEntry): List<ExportedEvent> {
+        return customOccurrenceDatesForExport(entry)
+            .mapNotNull { occurrenceDate ->
+                buildSingleEventForExport(
+                    entry = entry,
+                    uid = "${entry.id}#${occurrenceDate}",
+                    occurrenceDate = occurrenceDate,
+                )
+            }
+    }
+
+    private fun customOccurrenceDatesForExport(entry: TimetableEntry): List<LocalDate> {
+        val firstDate = parseEntryDate(entry.date) ?: return emptyList()
+        val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
+            ?: firstDate
+        val semesterWeekStart = semesterStartDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val customWeeks = parseWeekList(entry.customWeekList).orEmpty()
+        val skippedWeeks = parseWeekList(entry.skipWeekList).orEmpty()
+        val dayOffset = (entry.dayOfWeek - 1).coerceIn(0, 6)
+
+        return customWeeks
+            .asSequence()
+            .filter { it !in skippedWeeks }
+            .sorted()
+            .map { weekNumber ->
+                semesterWeekStart
+                    .plusWeeks((weekNumber - 1).toLong())
+                    .plusDays(dayOffset.toLong())
+            }
+            .filter { !it.isBefore(firstDate) }
+            .toList()
+    }
+
+    private fun skippedOccurrenceDateTimesForExport(
+        entry: TimetableEntry,
+        weekRule: WeekRule,
+    ): List<LocalDateTime> {
+        val firstDate = parseEntryDate(entry.date) ?: return emptyList()
+        val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
+            ?: firstDate
+        val semesterWeekStart = semesterStartDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val skippedWeeks = parseWeekList(entry.skipWeekList).orEmpty()
+        val startTime = LocalTime.of(entry.startMinutes / 60, entry.startMinutes % 60)
+        val dayOffset = (entry.dayOfWeek - 1).coerceIn(0, 6)
+
+        return skippedWeeks
+            .asSequence()
+            .sorted()
+            .filter { weekNumber -> weekMatchesRuleForExport(weekRule, weekNumber) }
+            .map { weekNumber ->
+                semesterWeekStart
+                    .plusWeeks((weekNumber - 1).toLong())
+                    .plusDays(dayOffset.toLong())
+            }
+            .filter { !it.isBefore(firstDate) }
+            .map { occurrenceDate -> LocalDateTime.of(occurrenceDate, startTime) }
+            .toList()
+    }
+
+    private fun weekMatchesRuleForExport(weekRule: WeekRule, weekNumber: Int): Boolean {
+        return when (weekRule) {
+            WeekRule.ALL -> true
+            WeekRule.ODD -> weekNumber % 2 == 1
+            WeekRule.EVEN -> weekNumber % 2 == 0
+            WeekRule.CUSTOM -> false
+        }
+    }
+
+    private fun dayOfWeekToken(dayOfWeek: Int): String? {
+        return when (dayOfWeek) {
+            1 -> "MO"
+            2 -> "TU"
+            3 -> "WE"
+            4 -> "TH"
+            5 -> "FR"
+            6 -> "SA"
+            7 -> "SU"
+            else -> null
+        }
+    }
+
+    private fun occurrenceStartForExport(date: LocalDate, startMinutes: Int): LocalDateTime? {
+        return runCatching {
+            date.atTime(startMinutes / 60, startMinutes % 60)
+        }.getOrNull()
+    }
+
+    private fun occurrenceEndForExport(date: LocalDate, endMinutes: Int): LocalDateTime? {
+        return runCatching {
+            if (endMinutes == 24 * 60) {
+                date.plusDays(1).atStartOfDay()
+            } else {
+                date.atTime(endMinutes / 60, endMinutes % 60)
+            }
+        }.getOrNull()
     }
 
     /**

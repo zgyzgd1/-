@@ -22,6 +22,10 @@ class CourseReminderReceiver : BroadcastReceiver() {
                 val location = intent.getStringExtra(CourseReminderScheduler.EXTRA_LOCATION).orEmpty()
                 val date = intent.getStringExtra(CourseReminderScheduler.EXTRA_DATE).orEmpty()
                 val startMinutes = intent.getIntExtra(CourseReminderScheduler.EXTRA_START_MINUTES, 8 * 60)
+                val reminderMinutes = intent.getIntExtra(
+                    CourseReminderScheduler.EXTRA_REMINDER_MINUTES,
+                    CourseReminderScheduler.defaultReminderMinutes(),
+                )
 
                 val openIntent = Intent(context, MainActivity::class.java)
                 val contentIntent = PendingIntent.getActivity(
@@ -31,19 +35,16 @@ class CourseReminderReceiver : BroadcastReceiver() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
 
-                val contentText = buildString {
-                    append(date)
-                    append(" ")
-                    append(formatMinutes(startMinutes))
-                    if (location.isNotBlank()) {
-                        append(" · ")
-                        append(location)
-                    }
-                }
+                val contentTitle = buildReminderNotificationTitle(title, reminderMinutes)
+                val contentText = buildReminderNotificationText(
+                    date = date,
+                    startMinutes = startMinutes,
+                    location = location,
+                )
 
                 val notification = NotificationCompat.Builder(context, CourseReminderScheduler.CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle("即将上课：$title")
+                    .setContentTitle(contentTitle)
                     .setContentText(contentText)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -64,5 +65,41 @@ class CourseReminderReceiver : BroadcastReceiver() {
             pendingResult.finish()
             throw throwable
         }
+    }
+}
+
+internal fun buildReminderNotificationTitle(title: String, reminderMinutes: Int): String {
+    val resolvedTitle = title.ifBlank { "课程提醒" }
+    return "${formatReminderLeadTime(reminderMinutes)}：$resolvedTitle"
+}
+
+internal fun buildReminderNotificationText(
+    date: String,
+    startMinutes: Int,
+    location: String,
+): String {
+    val parts = mutableListOf<String>()
+    val timeLabel = buildString {
+        if (date.isNotBlank()) {
+            append(date)
+            append(" ")
+        }
+        append(formatMinutes(startMinutes))
+    }
+    parts += timeLabel
+    if (location.isNotBlank()) {
+        parts += location
+    }
+    return parts.joinToString(" · ")
+}
+
+internal fun formatReminderLeadTime(reminderMinutes: Int): String {
+    val safeMinutes = reminderMinutes.coerceAtLeast(1)
+    val hours = safeMinutes / 60
+    val minutes = safeMinutes % 60
+    return when {
+        hours == 0 -> "${safeMinutes} 分钟后上课"
+        minutes == 0 -> "${hours} 小时后上课"
+        else -> "${hours} 小时 ${minutes} 分钟后上课"
     }
 }

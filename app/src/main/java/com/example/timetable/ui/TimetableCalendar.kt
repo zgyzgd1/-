@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.timetable.data.TimetableEntry
+import com.example.timetable.data.occursOnDate
 import com.example.timetable.data.parseEntryDate
 import java.time.LocalDate
 import java.time.YearMonth
@@ -71,7 +72,11 @@ fun PerpetualCalendar(
         val start = visibleMonth.atDay(1)
         (0 until visibleMonth.lengthOfMonth()).map { start.plusDays(it.toLong()) }
     }
-    val entriesByDate = remember(entries) { entries.groupingBy { it.date }.eachCount() }
+    val datesWithEntries = remember(entries, daysInMonth) {
+        daysInMonth.associateWith { date ->
+            entries.any { entry -> occursOnDate(entry, date) }
+        }
+    }
     val listState = rememberLazyListState()
 
     LaunchedEffect(selected, daysInMonth) {
@@ -129,7 +134,7 @@ fun PerpetualCalendar(
                 items(daysInMonth, key = { it.toEpochDay() }) { date ->
                     val isSelected = date == selected
                     val isToday = date == today
-                    val hasCourse = (entriesByDate[date.toString()] ?: 0) > 0
+                    val hasCourse = datesWithEntries[date] == true
 
                     val containerColor by animateColorAsState(
                         targetValue = when {

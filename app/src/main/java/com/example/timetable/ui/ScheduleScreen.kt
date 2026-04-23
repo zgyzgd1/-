@@ -24,6 +24,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -44,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -63,10 +66,15 @@ import com.example.timetable.data.syncWeekTimeSlotsWithEntryChange
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
 import com.example.timetable.data.formatDateLabel
+import com.example.timetable.data.formatMinutes
+import com.example.timetable.data.nextOccurrenceDate
+import com.example.timetable.data.occursOnDate
 import com.example.timetable.data.parseEntryDate
 import com.example.timetable.notify.CourseReminderScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,7 +96,6 @@ private val appDestinationNameStateSaver = Saver<String, Any>(
 @Composable
 fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
-    val entriesByDate by viewModel.entriesByDate.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -123,8 +130,16 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         selectedLocalDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     }
     val selectedWeekEnd = remember(selectedWeekStart) { selectedWeekStart.plusDays(6) }
+    val today = LocalDate.now()
+    val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
+    val nextCourseSnapshot = findNextCourseSnapshot(
+        entries = entries,
+        nowDate = today,
+        nowMinutes = nowMinutes,
+    )
 
     var editingEntry by remember { mutableStateOf<TimetableEntry?>(null) }
+    var pendingConflict by remember { mutableStateOf<PendingEntryConflict?>(null) }
     var editingWeekSlotIndex by remember { mutableStateOf<Int?>(null) }
     var addingWeekSlotInitial by remember { mutableStateOf<WeekTimeSlot?>(null) }
     var editingWeekSlotCount by remember { mutableStateOf(false) }
@@ -195,16 +210,16 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         }
     }
 
-    val filteredEntries = remember(entriesByDate, selectedDate, isWeekMode, selectedWeekStart) {
+    val filteredEntries = remember(entries, selectedDate, isWeekMode, selectedWeekStart) {
         if (isWeekMode) {
             buildList {
                 for (offset in 0L..6L) {
                     val date = selectedWeekStart.plusDays(offset)
-                    addAll(entriesByDate[date].orEmpty())
+                    addAll(entriesForDate(entries, date))
                 }
             }
         } else {
-            entriesByDate[selectedLocalDate].orEmpty()
+            entriesForDate(entries, selectedLocalDate)
         }
     }
 
@@ -242,12 +257,9 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                         containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f),
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         onClick = {
-                            editingEntry = TimetableEntry(
-                                title = "",
-                                date = selectedDate,
-                                dayOfWeek = selectedLocalDate.dayOfWeek.value,
-                                startMinutes = 8 * 60,
-                                endMinutes = 9 * 60,
+                            editingEntry = createQuickEntryTemplate(
+                                date = selectedLocalDate,
+                                existingEntries = entriesForDate(entries, selectedLocalDate),
                             )
                         },
                     ) {
@@ -281,10 +293,15 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     ) {
                         OutlinedButton(onClick = { editingFixedWeekSchedule = true }) {
                             Text("固定时间")
+                        }
+                        if (selectedLocalDate != today) {
+                            OutlinedButton(onClick = { selectedDate = today.toString() }) {
+                                Text("回到今天")
+                            }
                         }
                     }
                     Box(
@@ -447,6 +464,14 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                                 },
                             )
                         }
+                        nextCourseSnapshot?.let { upcoming ->
+                            item {
+                                NextCourseCard(
+                                    state = upcoming.toCardState(),
+                                    onViewDay = { selectedDate = upcoming.occurrenceDate.toString() },
+                                )
+                            }
+                        }
                         item {
                             PerpetualCalendar(
                                 selectedDate = selectedDate,
@@ -461,12 +486,9 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                             item {
                                 EmptyStateCard(
                                     onAdd = {
-                                        editingEntry = TimetableEntry(
-                                            title = "",
-                                            date = selectedDate,
-                                            dayOfWeek = selectedLocalDate.dayOfWeek.value,
-                                            startMinutes = 8 * 60,
-                                            endMinutes = 9 * 60,
+                                        editingEntry = createQuickEntryTemplate(
+                                            date = selectedLocalDate,
+                                            existingEntries = entriesForDate(entries, selectedLocalDate),
                                         )
                                     },
                                 )
@@ -476,6 +498,12 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
                                 EntryCard(
                                     entry = entry,
                                     onEdit = { editingEntry = entry },
+                                    onDuplicate = {
+                                        editingEntry = duplicateEntryTemplate(entry)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("已复制课程，确认后保存")
+                                        }
+                                    },
                                     onDelete = { viewModel.deleteEntry(entry.id) },
                                 )
                             }
@@ -547,22 +575,76 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
 
     editingEntry?.let { entry ->
         val existingEntry = entries.any { it.id == entry.id }
+        val applyEntrySave: (TimetableEntry, Boolean) -> Unit = { updatedEntry, allowConflict ->
+            viewModel.upsertEntry(updatedEntry, allowConflict = allowConflict)
+            val syncedWeekTimeSlots = syncWeekTimeSlotsWithEntryChange(
+                currentSlots = weekTimeSlots,
+                originalEntry = entry.takeIf { existingEntry },
+                updatedEntry = updatedEntry,
+            )
+            if (syncedWeekTimeSlots != weekTimeSlots) {
+                weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, syncedWeekTimeSlots)
+            }
+            pendingConflict = null
+            editingEntry = null
+        }
         EntryEditorDialog(
             initial = entry,
-            onDismiss = { editingEntry = null },
-            onSave = { updatedEntry ->
-                viewModel.upsertEntry(updatedEntry)
-                val syncedWeekTimeSlots = syncWeekTimeSlotsWithEntryChange(
-                    currentSlots = weekTimeSlots,
-                    originalEntry = entry.takeIf { existingEntry },
-                    updatedEntry = updatedEntry,
-                )
-                if (syncedWeekTimeSlots != weekTimeSlots) {
-                    weekTimeSlots = AppearanceStore.setWeekTimeSlots(context, syncedWeekTimeSlots)
-                }
+            onDismiss = {
+                pendingConflict = null
                 editingEntry = null
             },
+            onSave = { updatedEntry ->
+                val conflict = viewModel.previewConflict(updatedEntry)
+                if (conflict != null) {
+                    pendingConflict = PendingEntryConflict(
+                        updatedEntry = updatedEntry,
+                        conflictEntry = conflict,
+                    )
+                } else {
+                    applyEntrySave(updatedEntry, false)
+                }
+            },
         )
+
+        pendingConflict?.let { state ->
+            AlertDialog(
+                onDismissRequest = { pendingConflict = null },
+                title = { Text("检测到时间冲突") },
+                text = {
+                    Text(
+                        "与 ${state.conflictEntry.title}（${formatMinutes(state.conflictEntry.startMinutes)}-" +
+                            "${formatMinutes(state.conflictEntry.endMinutes)}）重叠。你可以返回修改，或继续保存。",
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = { applyEntrySave(state.updatedEntry, true) }) {
+                        Text("仍然保存")
+                    }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val adjusted = viewModel.suggestResolvedEntry(state.updatedEntry)
+                                if (adjusted == null) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("当天没有可顺延的完整时间段")
+                                    }
+                                } else {
+                                    applyEntrySave(adjusted, false)
+                                }
+                            },
+                        ) {
+                            Text("顺延并保存")
+                        }
+                        OutlinedButton(onClick = { pendingConflict = null }) {
+                            Text("返回修改")
+                        }
+                    }
+                },
+            )
+        }
     }
 
     editingWeekSlotIndex?.let { index ->
@@ -672,4 +754,156 @@ internal fun nextWeekTimeSlot(previous: WeekTimeSlot): WeekTimeSlot? {
     val end = start + DEFAULT_WEEK_SLOT_DURATION_MINUTES
     if (end > 24 * 60) return null
     return WeekTimeSlot(startMinutes = start, endMinutes = end)
+}
+
+internal data class NextCourseSnapshot(
+    val entry: TimetableEntry,
+    val occurrenceDate: LocalDate,
+    val statusText: String,
+)
+
+private data class PendingEntryConflict(
+    val updatedEntry: TimetableEntry,
+    val conflictEntry: TimetableEntry,
+)
+
+internal fun findNextCourseSnapshot(
+    entries: List<TimetableEntry>,
+    nowDate: LocalDate = LocalDate.now(),
+    nowMinutes: Int = LocalTime.now().let { it.hour * 60 + it.minute },
+): NextCourseSnapshot? {
+    val todayEntries = entriesForDate(entries, nowDate)
+
+    val ongoingEntry = todayEntries.firstOrNull { nowMinutes in it.startMinutes until it.endMinutes }
+    if (ongoingEntry != null) {
+        val remainingMinutes = (ongoingEntry.endMinutes - nowMinutes).coerceAtLeast(0)
+        val status = if (remainingMinutes > 0) {
+            "正在进行，距离下课 $remainingMinutes 分钟"
+        } else {
+            "正在进行"
+        }
+        return NextCourseSnapshot(
+            entry = ongoingEntry,
+            occurrenceDate = nowDate,
+            statusText = status,
+        )
+    }
+
+    val nextTodayEntry = todayEntries.firstOrNull { it.startMinutes >= nowMinutes }
+    if (nextTodayEntry != null) {
+        val waitMinutes = (nextTodayEntry.startMinutes - nowMinutes).coerceAtLeast(0)
+        val status = if (waitMinutes == 0) {
+            "即将开始"
+        } else {
+            "$waitMinutes 分钟后开始"
+        }
+        return NextCourseSnapshot(
+            entry = nextTodayEntry,
+            occurrenceDate = nowDate,
+            statusText = status,
+        )
+    }
+
+    val futureOccurrence = entries
+        .asSequence()
+        .mapNotNull { entry ->
+            val nextDate = nextOccurrenceDate(entry, nowDate.plusDays(1)) ?: return@mapNotNull null
+            entry to nextDate
+        }
+        .sortedWith(
+            compareBy<Pair<TimetableEntry, LocalDate>>(
+                { it.second },
+                { it.first.startMinutes },
+                { it.first.endMinutes },
+                { it.first.title },
+            ),
+        )
+        .firstOrNull()
+        ?: return null
+    val resolvedEntry = futureOccurrence.first
+    val resolvedDate = futureOccurrence.second
+
+    val dayOffset = ChronoUnit.DAYS.between(nowDate, resolvedDate).toInt().coerceAtLeast(0)
+    val dayLabel = when (dayOffset) {
+        0 -> "今天"
+        1 -> "明天"
+        2 -> "后天"
+        else -> "$dayOffset 天后"
+    }
+    return NextCourseSnapshot(
+        entry = resolvedEntry,
+        occurrenceDate = resolvedDate,
+        statusText = "$dayLabel ${formatMinutes(resolvedEntry.startMinutes)} 开始",
+    )
+}
+
+internal fun entriesForDate(
+    entries: List<TimetableEntry>,
+    date: LocalDate,
+): List<TimetableEntry> {
+    return entries
+        .asSequence()
+        .filter { occursOnDate(it, date) }
+        .sortedBy { it.startMinutes }
+        .toList()
+}
+
+private fun NextCourseSnapshot.toCardState(): NextCourseCardState {
+    return NextCourseCardState(
+        title = entry.title.ifBlank { "未命名课程" },
+        timeRange = "${formatMinutes(entry.startMinutes)} - ${formatMinutes(entry.endMinutes)}",
+        location = entry.location,
+        statusText = statusText,
+    )
+}
+
+internal fun createQuickEntryTemplate(
+    date: LocalDate,
+    existingEntries: List<TimetableEntry>,
+): TimetableEntry {
+    val fallbackStart = 8 * 60
+    val fallbackEnd = 9 * 60
+    val lastEntry = existingEntries.maxByOrNull { it.endMinutes }
+
+    val suggestedStart: Int
+    val suggestedEnd: Int
+    if (lastEntry == null) {
+        suggestedStart = fallbackStart
+        suggestedEnd = fallbackEnd
+    } else {
+        val templateDuration = (lastEntry.endMinutes - lastEntry.startMinutes).coerceIn(30, 120)
+        suggestedStart = (lastEntry.endMinutes + DEFAULT_WEEK_SLOT_GAP_MINUTES).coerceIn(0, (24 * 60) - 1)
+        suggestedEnd = (suggestedStart + templateDuration).coerceAtMost(24 * 60)
+    }
+
+    val (startMinutes, endMinutes) = if (suggestedEnd > suggestedStart) {
+        suggestedStart to suggestedEnd
+    } else {
+        fallbackStart to fallbackEnd
+    }
+
+    return TimetableEntry(
+        title = "",
+        date = date.toString(),
+        dayOfWeek = date.dayOfWeek.value,
+        startMinutes = startMinutes,
+        endMinutes = endMinutes,
+    )
+}
+
+internal fun duplicateEntryTemplate(source: TimetableEntry): TimetableEntry {
+    return TimetableEntry(
+        title = source.title,
+        date = source.date,
+        dayOfWeek = source.dayOfWeek,
+        startMinutes = source.startMinutes,
+        endMinutes = source.endMinutes,
+        location = source.location,
+        note = source.note,
+        recurrenceType = source.recurrenceType,
+        semesterStartDate = source.semesterStartDate,
+        weekRule = source.weekRule,
+        customWeekList = source.customWeekList,
+        skipWeekList = source.skipWeekList,
+    )
 }

@@ -1,7 +1,10 @@
 package com.example.timetable.data
 
 import java.time.LocalDate
+import java.time.DayOfWeek
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -29,6 +32,11 @@ data class TimetableEntry(
     val endMinutes: Int,
     val location: String = "",
     val note: String = "",
+    val recurrenceType: String = RecurrenceType.NONE.name,
+    val semesterStartDate: String = "",
+    val weekRule: String = WeekRule.ALL.name,
+    val customWeekList: String = "",
+    val skipWeekList: String = "",
 ) {
     init {
         require(parseEntryDate(date) != null)
@@ -37,7 +45,26 @@ data class TimetableEntry(
         require(startMinutes in 0 until 24 * 60)
         require(endMinutes in 1..24 * 60)
         require(startMinutes < endMinutes)
+        require(resolveRecurrenceType(recurrenceType) != null)
+        require(resolveWeekRule(weekRule) != null)
+        if (semesterStartDate.isNotBlank()) {
+            require(parseEntryDate(semesterStartDate) != null)
+        }
+        require(parseWeekList(customWeekList) != null)
+        require(parseWeekList(skipWeekList) != null)
     }
+}
+
+enum class RecurrenceType {
+    NONE,
+    WEEKLY,
+}
+
+enum class WeekRule {
+    ALL,
+    ODD,
+    EVEN,
+    CUSTOM,
 }
 
 /**
@@ -146,6 +173,146 @@ fun defaultDateForWeekday(dayOfWeek: Int): String {
     val safeDay = dayOfWeek.coerceIn(1, 7)
     val monday = LocalDate.now().with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
     return monday.plusDays((safeDay - 1).toLong()).toString()
+}
+
+fun resolveRecurrenceType(value: String): RecurrenceType? {
+    return runCatching { RecurrenceType.valueOf(value.trim().uppercase()) }.getOrNull()
+}
+
+fun resolveWeekRule(value: String): WeekRule? {
+    return runCatching { WeekRule.valueOf(value.trim().uppercase()) }.getOrNull()
+}
+
+fun parseWeekList(raw: String): Set<Int>? {
+    if (raw.isBlank()) return emptySet()
+    val result = linkedSetOf<Int>()
+    val tokens = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    if (tokens.isEmpty()) return emptySet()
+
+    for (token in tokens) {
+        if ('-' in token) {
+            val parts = token.split('-', limit = 2).map { it.trim() }
+            if (parts.size != 2) return null
+            val start = parts[0].toIntOrNull() ?: return null
+            val end = parts[1].toIntOrNull() ?: return null
+            if (start <= 0 || end <= 0 || end < start) return null
+            for (week in start..end) {
+                result += week
+            }
+        } else {
+            val week = token.toIntOrNull() ?: return null
+            if (week <= 0) return null
+            result += week
+        }
+    }
+    return result
+}
+
+fun weekIndexFromSemesterStart(
+    semesterStartDate: LocalDate,
+    targetDate: LocalDate,
+): Int? {
+    val semesterWeekStart = semesterStartDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val targetWeekStart = targetDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    if (targetWeekStart.isBefore(semesterWeekStart)) return null
+    val dayDiff = ChronoUnit.DAYS.between(semesterWeekStart, targetWeekStart)
+    return (dayDiff / 7L).toInt() + 1
+}
+
+fun currentWeekIndex(
+    semesterStartDateText: String,
+    today: LocalDate = LocalDate.now(),
+): Int? {
+    val semesterStartDate = parseEntryDate(semesterStartDateText) ?: return null
+    return weekIndexFromSemesterStart(semesterStartDate, today)
+}
+
+fun nextOccurrenceDate(
+    entry: TimetableEntry,
+    onOrAfter: LocalDate,
+): LocalDate? {
+    val firstOccurrenceDate = parseEntryDate(entry.date) ?: return null
+    val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: RecurrenceType.NONE
+    if (recurrence == RecurrenceType.NONE) {
+        return firstOccurrenceDate.takeIf { !it.isBefore(onOrAfter) }
+    }
+
+    val searchStart = maxOf(onOrAfter, firstOccurrenceDate)
+    val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
+        ?: firstOccurrenceDate
+    val semesterWeekStart = semesterStartDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val dayOffset = (entry.dayOfWeek - 1).coerceIn(0, 6)
+    val weekRule = resolveWeekRule(entry.weekRule) ?: return null
+    val skippedWeeks = parseWeekList(entry.skipWeekList) ?: return null
+
+    if (weekRule == WeekRule.CUSTOM) {
+        val customWeeks = parseWeekList(entry.customWeekList) ?: return null
+        return customWeeks
+            .asSequence()
+            .filter { it !in skippedWeeks }
+            .sorted()
+            .map { weekNumber ->
+                semesterWeekStart
+                    .plusWeeks((weekNumber - 1).toLong())
+                    .plusDays(dayOffset.toLong())
+            }
+            .firstOrNull { date ->
+                !date.isBefore(searchStart) &&
+                    !date.isBefore(firstOccurrenceDate) &&
+                    occursOnDate(entry, date)
+            }
+    }
+
+    val daysUntilTargetWeekday = (entry.dayOfWeek - searchStart.dayOfWeek.value + 7) % 7
+    val firstCandidate = searchStart.plusDays(daysUntilTargetWeekday.toLong())
+    var candidateWeek = weekIndexFromSemesterStart(semesterStartDate, firstCandidate) ?: return null
+    if (weekRule == WeekRule.ODD && candidateWeek % 2 == 0) {
+        candidateWeek++
+    }
+    if (weekRule == WeekRule.EVEN && candidateWeek % 2 == 1) {
+        candidateWeek++
+    }
+
+    val weekStep = if (weekRule == WeekRule.ALL) 1 else 2
+    while (candidateWeek in skippedWeeks) {
+        candidateWeek += weekStep
+    }
+
+    val nextDate = semesterWeekStart
+        .plusWeeks((candidateWeek - 1).toLong())
+        .plusDays(dayOffset.toLong())
+    return nextDate.takeIf { !it.isBefore(searchStart) && occursOnDate(entry, it) }
+}
+
+fun occursOnDate(
+    entry: TimetableEntry,
+    targetDate: LocalDate,
+): Boolean {
+    val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: RecurrenceType.NONE
+    if (recurrence == RecurrenceType.NONE) {
+        return entry.date == targetDate.toString()
+    }
+
+    if (targetDate.dayOfWeek.value != entry.dayOfWeek) return false
+
+    val firstOccurrenceDate = parseEntryDate(entry.date) ?: return false
+    if (targetDate.isBefore(firstOccurrenceDate)) return false
+
+    val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
+        ?: firstOccurrenceDate
+    val weekIndex = weekIndexFromSemesterStart(semesterStartDate, targetDate) ?: return false
+
+    val weekRule = resolveWeekRule(entry.weekRule) ?: WeekRule.ALL
+    val customWeeks = parseWeekList(entry.customWeekList) ?: return false
+    val skippedWeeks = parseWeekList(entry.skipWeekList) ?: return false
+    if (weekIndex in skippedWeeks) return false
+
+    return when (weekRule) {
+        WeekRule.ALL -> true
+        WeekRule.ODD -> weekIndex % 2 == 1
+        WeekRule.EVEN -> weekIndex % 2 == 0
+        WeekRule.CUSTOM -> weekIndex in customWeeks
+    }
 }
 
 /**

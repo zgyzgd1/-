@@ -24,13 +24,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.timetable.data.FixedWeekScheduleConfig
+import com.example.timetable.data.RecurrenceType
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.WeekTimeSlot
+import com.example.timetable.data.WeekRule
 import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
 import com.example.timetable.data.buildWeekTimeSlotsFromFixedSchedule
 import com.example.timetable.data.formatMinutes
+import com.example.timetable.data.parseWeekList
 import com.example.timetable.data.parseEntryDate
 import com.example.timetable.data.parseMinutes
+import com.example.timetable.data.resolveRecurrenceType
+import com.example.timetable.data.resolveWeekRule
 
 @Composable
 fun EntryEditorDialog(
@@ -38,12 +43,19 @@ fun EntryEditorDialog(
     onDismiss: () -> Unit,
     onSave: (TimetableEntry) -> Unit,
 ) {
+    val initialRecurrence = resolveRecurrenceType(initial.recurrenceType) ?: RecurrenceType.NONE
+    val initialWeekRule = resolveWeekRule(initial.weekRule) ?: WeekRule.ALL
     var title by rememberSaveable(initial.id) { mutableStateOf(initial.title) }
     var dateText by rememberSaveable(initial.id) { mutableStateOf(initial.date) }
     var startTime by rememberSaveable(initial.id) { mutableStateOf(formatMinutes(initial.startMinutes)) }
     var endTime by rememberSaveable(initial.id) { mutableStateOf(formatMinutes(initial.endMinutes)) }
     var location by rememberSaveable(initial.id) { mutableStateOf(initial.location) }
     var note by rememberSaveable(initial.id) { mutableStateOf(initial.note) }
+    var recurrenceType by rememberSaveable(initial.id) { mutableStateOf(initialRecurrence) }
+    var semesterStartDateText by rememberSaveable(initial.id) { mutableStateOf(initial.semesterStartDate) }
+    var weekRule by rememberSaveable(initial.id) { mutableStateOf(initialWeekRule) }
+    var customWeekListText by rememberSaveable(initial.id) { mutableStateOf(initial.customWeekList) }
+    var skipWeekListText by rememberSaveable(initial.id) { mutableStateOf(initial.skipWeekList) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -90,10 +102,61 @@ fun EntryEditorDialog(
                 )
                 AppTextField(
                     value = note,
-                    onValueChange = { note = it },
+                    onValueChange = {
+                        note = it
+                        errorText = null
+                    },
                     label = "备注",
                     minLines = 2,
                 )
+                RecurrenceSelector(
+                    selected = recurrenceType,
+                    onSelected = {
+                        recurrenceType = it
+                        errorText = null
+                    },
+                )
+                if (recurrenceType == RecurrenceType.WEEKLY) {
+                    AppTextField(
+                        value = semesterStartDateText,
+                        onValueChange = {
+                            semesterStartDateText = it
+                            errorText = null
+                        },
+                        label = "学期开学日期",
+                        placeholder = "2026-09-01",
+                        singleLine = true,
+                    )
+                    WeekRuleSelector(
+                        selected = weekRule,
+                        onSelected = {
+                            weekRule = it
+                            errorText = null
+                        },
+                    )
+                    if (weekRule == WeekRule.CUSTOM) {
+                        AppTextField(
+                            value = customWeekListText,
+                            onValueChange = {
+                                customWeekListText = it
+                                errorText = null
+                            },
+                            label = "自定义周次",
+                            placeholder = "1,3,5 或 1-16",
+                            singleLine = true,
+                        )
+                    }
+                    AppTextField(
+                        value = skipWeekListText,
+                        onValueChange = {
+                            skipWeekListText = it
+                            errorText = null
+                        },
+                        label = "跳过周次(可选)",
+                        placeholder = "如 8,12",
+                        singleLine = true,
+                    )
+                }
                 errorText?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -105,6 +168,15 @@ fun EntryEditorDialog(
                     val parsedStart = parseMinutes(startTime)
                     val parsedEnd = parseMinutes(endTime)
                     val parsedDate = parseEntryDate(dateText)
+                    val normalizedCustomWeekList = normalizeWeekListText(customWeekListText)
+                    val normalizedSkipWeekList = normalizeWeekListText(skipWeekListText)
+                    val parsedSemesterStart = if (semesterStartDateText.isBlank()) {
+                        parsedDate
+                    } else {
+                        parseEntryDate(semesterStartDateText)
+                    }
+                    val customWeeks = parseWeekList(normalizedCustomWeekList)
+                    val skipWeeks = parseWeekList(normalizedSkipWeekList)
                     when {
                         title.trim().isBlank() -> errorText = "请输入课程名称"
                         title.trim().length > 64 -> errorText = "课程名称不能超过 64 个字符"
@@ -113,6 +185,12 @@ fun EntryEditorDialog(
                         parsedStart >= parsedEnd -> errorText = "结束时间需要晚于开始时间"
                         location.trim().length > 64 -> errorText = "地点不能超过 64 个字符"
                         note.trim().length > 256 -> errorText = "备注不能超过 256 个字符"
+                        recurrenceType == RecurrenceType.WEEKLY && parsedSemesterStart == null -> errorText = "请输入合法的学期开学日期"
+                        recurrenceType == RecurrenceType.WEEKLY && customWeeks == null -> errorText = "自定义周次格式错误，请使用 1,3,5 或 1-16"
+                        recurrenceType == RecurrenceType.WEEKLY && skipWeeks == null -> errorText = "跳过周次格式错误，请使用 8,12 或 1-3"
+                        recurrenceType == RecurrenceType.WEEKLY && weekRule == WeekRule.CUSTOM && customWeeks.isNullOrEmpty() -> {
+                            errorText = "自定义周次不能为空"
+                        }
                         else -> onSave(
                             initial.copy(
                                 title = title.trim(),
@@ -122,6 +200,27 @@ fun EntryEditorDialog(
                                 endMinutes = parsedEnd,
                                 location = location.trim(),
                                 note = note.trim(),
+                                recurrenceType = recurrenceType.name,
+                                semesterStartDate = if (recurrenceType == RecurrenceType.WEEKLY) {
+                                    parsedSemesterStart.toString()
+                                } else {
+                                    ""
+                                },
+                                weekRule = if (recurrenceType == RecurrenceType.WEEKLY) {
+                                    weekRule.name
+                                } else {
+                                    WeekRule.ALL.name
+                                },
+                                customWeekList = if (recurrenceType == RecurrenceType.WEEKLY) {
+                                    normalizedCustomWeekList
+                                } else {
+                                    ""
+                                },
+                                skipWeekList = if (recurrenceType == RecurrenceType.WEEKLY) {
+                                    normalizedSkipWeekList
+                                } else {
+                                    ""
+                                },
                             ),
                         )
                     }
@@ -136,6 +235,79 @@ fun EntryEditorDialog(
             }
         },
     )
+}
+
+@Composable
+private fun RecurrenceSelector(
+    selected: RecurrenceType,
+    onSelected: (RecurrenceType) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("重复规则", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RecurrenceType.entries.forEach { option ->
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelected(option) },
+                ) {
+                    Text(
+                        when (option) {
+                            RecurrenceType.NONE -> "仅当天"
+                            RecurrenceType.WEEKLY -> "按周循环"
+                        } + if (option == selected) " ✓" else "",
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekRuleSelector(
+    selected: WeekRule,
+    onSelected: (WeekRule) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("周次规则", style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val leftOptions = listOf(WeekRule.ALL, WeekRule.ODD)
+            leftOptions.forEach { option ->
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelected(option) },
+                ) {
+                    Text(weekRuleLabel(option) + if (option == selected) " ✓" else "")
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val rightOptions = listOf(WeekRule.EVEN, WeekRule.CUSTOM)
+            rightOptions.forEach { option ->
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { onSelected(option) },
+                ) {
+                    Text(weekRuleLabel(option) + if (option == selected) " ✓" else "")
+                }
+            }
+        }
+    }
+}
+
+private fun weekRuleLabel(rule: WeekRule): String {
+    return when (rule) {
+        WeekRule.ALL -> "每周"
+        WeekRule.ODD -> "单周"
+        WeekRule.EVEN -> "双周"
+        WeekRule.CUSTOM -> "自定义"
+    }
+}
+
+private fun normalizeWeekListText(raw: String): String {
+    return raw
+        .trim()
+        .replace('，', ',')
+        .replace(" ", "")
 }
 
 @Composable
