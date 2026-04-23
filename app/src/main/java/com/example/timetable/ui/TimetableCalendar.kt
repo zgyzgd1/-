@@ -39,6 +39,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -158,6 +163,16 @@ fun PerpetualCalendar(
                     Card(
                         modifier = Modifier
                             .width(54.dp)
+                            .semantics {
+                                role = Role.Button
+                                this.selected = isSelected
+                                contentDescription = buildCalendarDayContentDescription(
+                                    date = date,
+                                    selected = isSelected,
+                                    today = isToday,
+                                    hasCourse = hasCourse,
+                                )
+                            }
                             .clickable { onDateChanged(date.toString()) },
                         shape = RoundedCornerShape(18.dp),
                         colors = CardDefaults.cardColors(containerColor = containerColor),

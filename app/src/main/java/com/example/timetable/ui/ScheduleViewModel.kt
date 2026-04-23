@@ -19,6 +19,7 @@ import com.example.timetable.data.resolveRecurrenceType
 import com.example.timetable.data.resolveWeekRule
 import com.example.timetable.data.weekIndexFromSemesterStart
 import com.example.timetable.notify.CourseReminderScheduler
+import com.example.timetable.widget.TimetableWidgetUpdater
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -78,6 +79,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             entries.collect { currentEntries ->
                 syncReminders(currentEntries)
+                TimetableWidgetUpdater.refreshAll(getApplication(), currentEntries)
             }
         }
     }
@@ -159,10 +161,12 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateReminderMinutes(minutes: Int) {
-        CourseReminderScheduler.setReminderMinutes(getApplication(), minutes)
+    fun updateReminderMinutes(minutes: Iterable<Int>) {
+        val normalizedMinutes = CourseReminderScheduler.normalizeReminderMinutes(minutes)
+        if (normalizedMinutes.isEmpty()) return
+        CourseReminderScheduler.setReminderMinutes(getApplication(), normalizedMinutes)
         syncReminders(entries.value)
-        postMessage("已设置为提前 $minutes 分钟提醒")
+        postMessage("已设置为提前 ${CourseReminderScheduler.formatReminderSelection(normalizedMinutes)} 提醒")
     }
 
     private suspend fun readText(contentResolver: ContentResolver, uri: Uri): String {

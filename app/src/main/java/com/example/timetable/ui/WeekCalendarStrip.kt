@@ -26,6 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -133,6 +138,15 @@ private fun WeekCalendarDayCell(
             .aspectRatio(1f)
             .clip(RoundedCornerShape(18.dp))
             .background(containerColor)
+            .semantics {
+                role = Role.Button
+                this.selected = selected
+                contentDescription = buildWeekCalendarDayContentDescription(
+                    date = date,
+                    selected = selected,
+                    today = today,
+                )
+            }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

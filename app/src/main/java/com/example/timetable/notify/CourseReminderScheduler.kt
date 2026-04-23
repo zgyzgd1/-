@@ -36,9 +36,11 @@ object CourseReminderScheduler {
     private const val PREFS_NAME = "course_reminder_prefs"
     private const val KEY_CODES = "scheduled_codes"
     private const val KEY_REMINDER_MINUTES = "reminder_minutes"
+    private const val KEY_REMINDER_MINUTES_SET = "reminder_minutes_set"
     private const val DEFAULT_REMINDER_MINUTES = 20
     private const val MIN_REMINDER_MINUTES = 1
     private const val MAX_REMINDER_MINUTES = 180
+    private const val MAX_REMINDER_SELECTION_COUNT = 5
     private val reminderOptions = listOf(5, 10, 20, 30)
     private val resyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -54,13 +56,14 @@ object CourseReminderScheduler {
         val triggerAtMillis: Long,
         val entry: TimetableEntry,
         val occurrenceDate: LocalDate,
+        val reminderMinutes: Int,
     )
 
     @Synchronized
     fun sync(context: Context, entries: List<TimetableEntry>) {
         val appContext = context.applicationContext
         ensureNotificationChannel(appContext)
-        val reminderMinutes = getReminderMinutes(appContext)
+        val reminderMinutes = getReminderMinutesSet(appContext)
 
         val alarmManager = appContext.getSystemService(AlarmManager::class.java) ?: return
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -68,7 +71,7 @@ object CourseReminderScheduler {
 
         val plan = buildSchedulePlan(
             entries = entries,
-            reminderMinutes = reminderMinutes,
+            reminderMinutesOptions = reminderMinutes,
             nowMillis = System.currentTimeMillis(),
             oldCodes = oldCodes,
         )
@@ -82,7 +85,7 @@ object CourseReminderScheduler {
                 context = appContext,
                 entry = scheduled.entry,
                 occurrenceDate = scheduled.occurrenceDate,
-                reminderMinutes = reminderMinutes,
+                reminderMinutes = scheduled.reminderMinutes,
                 requestCode = requestCode,
                 includeNoCreateFlag = false,
             ) ?: return@forEach
@@ -99,27 +102,52 @@ object CourseReminderScheduler {
         nowMillis: Long,
         oldCodes: Set<Int>,
     ): SchedulePlan {
+        return buildSchedulePlan(
+            entries = entries,
+            reminderMinutesOptions = listOf(reminderMinutes),
+            nowMillis = nowMillis,
+            oldCodes = oldCodes,
+        )
+    }
+
+    internal fun buildSchedulePlan(
+        entries: List<TimetableEntry>,
+        reminderMinutesOptions: List<Int>,
+        nowMillis: Long,
+        oldCodes: Set<Int>,
+    ): SchedulePlan {
+        val normalizedReminderMinutes = normalizeReminderMinutes(reminderMinutesOptions)
+        if (normalizedReminderMinutes.isEmpty()) {
+            return SchedulePlan(
+                newSchedules = emptyMap(),
+                codesToCancel = oldCodes,
+            )
+        }
+
         val newSchedules = mutableMapOf<Int, ScheduledReminder>()
         var nextTriggerAtMillis: Long? = null
         val nextEntries = mutableListOf<ScheduledReminder>()
 
         entries.forEach { entry ->
-            val scheduled = computeNextReminder(entry, reminderMinutes, nowMillis) ?: return@forEach
-            val triggerAtMillis = scheduled.triggerAtMillis
-            if (triggerAtMillis <= nowMillis) return@forEach
+            normalizedReminderMinutes.forEach { reminderMinutes ->
+                val scheduled = computeNextReminder(entry, reminderMinutes, nowMillis) ?: return@forEach
+                val triggerAtMillis = scheduled.triggerAtMillis
+                if (triggerAtMillis <= nowMillis) return@forEach
 
-            if (nextTriggerAtMillis == null || triggerAtMillis < nextTriggerAtMillis) {
-                nextTriggerAtMillis = triggerAtMillis
-                nextEntries.clear()
-                nextEntries.add(scheduled)
-            } else if (triggerAtMillis == nextTriggerAtMillis) {
-                nextEntries.add(scheduled)
+                val currentNextTrigger = nextTriggerAtMillis
+                if (currentNextTrigger == null || triggerAtMillis < currentNextTrigger) {
+                    nextTriggerAtMillis = triggerAtMillis
+                    nextEntries.clear()
+                    nextEntries.add(scheduled)
+                } else if (triggerAtMillis == currentNextTrigger) {
+                    nextEntries.add(scheduled)
+                }
             }
         }
 
         nextTriggerAtMillis?.let { scheduledTriggerAtMillis ->
             nextEntries.forEach { scheduled ->
-                val requestCode = requestCodeFor(scheduled.entry, reminderMinutes)
+                val requestCode = requestCodeFor(scheduled.entry, scheduled.reminderMinutes)
                 newSchedules[requestCode] = scheduled.copy(triggerAtMillis = scheduledTriggerAtMillis)
             }
         }
@@ -131,16 +159,34 @@ object CourseReminderScheduler {
         )
     }
 
-    fun getReminderMinutes(context: Context): Int {
+    fun getReminderMinutesSet(context: Context): List<Int> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val stored = prefs.getInt(KEY_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)
-        return stored.takeIf(::isReminderMinutesValid) ?: DEFAULT_REMINDER_MINUTES
+        val storedSet = prefs.getStringSet(KEY_REMINDER_MINUTES_SET, null)
+            ?.mapNotNull { value -> value.toIntOrNull() }
+            .orEmpty()
+        val normalizedStored = normalizeReminderMinutes(storedSet)
+        if (normalizedStored.isNotEmpty()) return normalizedStored
+
+        val storedLegacy = prefs.getInt(KEY_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)
+        return normalizeReminderMinutes(listOf(storedLegacy)).ifEmpty { defaultReminderMinutesSet() }
+    }
+
+    fun getReminderMinutes(context: Context): Int {
+        return getReminderMinutesSet(context).firstOrNull() ?: DEFAULT_REMINDER_MINUTES
     }
 
     fun setReminderMinutes(context: Context, minutes: Int) {
-        if (!isReminderMinutesValid(minutes)) return
+        setReminderMinutes(context, listOf(minutes))
+    }
+
+    fun setReminderMinutes(context: Context, minutes: Iterable<Int>) {
+        val normalized = normalizeReminderMinutes(minutes)
+        if (normalized.isEmpty()) return
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putInt(KEY_REMINDER_MINUTES, minutes).apply()
+        prefs.edit()
+            .putInt(KEY_REMINDER_MINUTES, normalized.first())
+            .putStringSet(KEY_REMINDER_MINUTES_SET, normalized.map(Int::toString).toSet())
+            .apply()
     }
 
     fun reminderMinuteOptions(): List<Int> = reminderOptions
@@ -148,6 +194,32 @@ object CourseReminderScheduler {
     fun isReminderMinutesValid(minutes: Int): Boolean = minutes in MIN_REMINDER_MINUTES..MAX_REMINDER_MINUTES
 
     fun defaultReminderMinutes(): Int = DEFAULT_REMINDER_MINUTES
+
+    fun defaultReminderMinutesSet(): List<Int> = listOf(DEFAULT_REMINDER_MINUTES)
+
+    fun maxReminderSelectionCount(): Int = MAX_REMINDER_SELECTION_COUNT
+
+    internal fun normalizeReminderMinutes(reminderMinutes: Iterable<Int>): List<Int> {
+        return reminderMinutes
+            .filter(::isReminderMinutesValid)
+            .distinct()
+            .sorted()
+            .take(MAX_REMINDER_SELECTION_COUNT)
+    }
+
+    fun formatReminderSelection(reminderMinutes: Iterable<Int>): String {
+        val normalized = normalizeReminderMinutes(reminderMinutes).ifEmpty { defaultReminderMinutesSet() }
+        return normalized.joinToString("、") { "$it 分钟" }
+    }
+
+    fun formatReminderChipLabel(reminderMinutes: Iterable<Int>): String {
+        val normalized = normalizeReminderMinutes(reminderMinutes).ifEmpty { defaultReminderMinutesSet() }
+        return when (normalized.size) {
+            1 -> "${normalized.first()}m"
+            2 -> normalized.joinToString("/") { "${it}m" }
+            else -> "${normalized.size}档"
+        }
+    }
 
     fun resyncFromStorage(context: Context, onComplete: (() -> Unit)? = null) {
         val appContext = context.applicationContext
@@ -197,6 +269,7 @@ object CourseReminderScheduler {
                 triggerAtMillis = firstTriggerAtMillis,
                 entry = entry,
                 occurrenceDate = firstDate,
+                reminderMinutes = reminderMinutes,
             )
         }
 
@@ -206,6 +279,7 @@ object CourseReminderScheduler {
             triggerAtMillis = fallbackTriggerAtMillis,
             entry = entry,
             occurrenceDate = fallbackDate,
+            reminderMinutes = reminderMinutes,
         ).takeIf { it.triggerAtMillis > nowMillis }
     }
 

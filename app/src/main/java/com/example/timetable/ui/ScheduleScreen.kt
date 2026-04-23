@@ -60,7 +60,9 @@ import com.example.timetable.data.AppBackgroundMode
 import com.example.timetable.data.AppCacheManager
 import com.example.timetable.data.AppearanceStore
 import com.example.timetable.data.BackgroundImageManager
+import com.example.timetable.data.NextCourseSnapshot as SharedNextCourseSnapshot
 import com.example.timetable.data.areWeekTimeSlotsNonOverlapping
+import com.example.timetable.data.findNextCourseSnapshot as findSharedNextCourseSnapshot
 import com.example.timetable.data.inferFixedWeekScheduleConfig
 import com.example.timetable.data.syncWeekTimeSlotsWithEntryChange
 import com.example.timetable.data.TimetableEntry
@@ -94,7 +96,10 @@ private val appDestinationNameStateSaver = Saver<String, Any>(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
+fun ScheduleApp(
+    launchTarget: AppLaunchTarget = AppLaunchTarget(),
+    viewModel: ScheduleViewModel = viewModel(),
+) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -108,10 +113,13 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
 
     val minDate = LocalDate.of(1970, 1, 1)
     val maxDate = LocalDate.of(2100, 12, 31)
-    val initialDate = LocalDate.now().takeIf { it in minDate..maxDate } ?: LocalDate.of(2026, 1, 1)
+    val initialDate = parseEntryDate(launchTarget.selectedDate.orEmpty())
+        ?.takeIf { it in minDate..maxDate }
+        ?: LocalDate.now().takeIf { it in minDate..maxDate }
+        ?: LocalDate.of(2026, 1, 1)
     var selectedDate by rememberSaveable { mutableStateOf(initialDate.toString()) }
     var currentDestinationName by rememberSaveable(stateSaver = appDestinationNameStateSaver) {
-        mutableStateOf(AppDestination.DAY.name)
+        mutableStateOf(launchTarget.destination.name)
     }
     val currentDestination = remember(currentDestinationName) {
         AppDestination.fromSavedName(currentDestinationName)
@@ -120,6 +128,15 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
         val normalizedDestinationName = currentDestination.name
         if (normalizedDestinationName != currentDestinationName) {
             currentDestinationName = normalizedDestinationName
+        }
+    }
+    LaunchedEffect(launchTarget.selectedDate, launchTarget.destination) {
+        val targetDate = parseEntryDate(launchTarget.selectedDate.orEmpty())?.takeIf { it in minDate..maxDate }
+        if (targetDate != null && targetDate.toString() != selectedDate) {
+            selectedDate = targetDate.toString()
+        }
+        if (currentDestinationName != launchTarget.destination.name) {
+            currentDestinationName = launchTarget.destination.name
         }
     }
     val isWeekMode = currentDestination == AppDestination.WEEK
@@ -132,7 +149,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     val selectedWeekEnd = remember(selectedWeekStart) { selectedWeekStart.plusDays(6) }
     val today = LocalDate.now()
     val nowMinutes = LocalTime.now().let { it.hour * 60 + it.minute }
-    val nextCourseSnapshot = findNextCourseSnapshot(
+    val nextCourseSnapshot = findSharedNextCourseSnapshot(
         entries = entries,
         nowDate = today,
         nowMinutes = nowMinutes,
@@ -146,7 +163,7 @@ fun ScheduleApp(viewModel: ScheduleViewModel = viewModel()) {
     var editingFixedWeekSchedule by remember { mutableStateOf(false) }
     var showBackgroundAdjustDialog by remember { mutableStateOf(false) }
     var clearingCache by remember { mutableStateOf(false) }
-    var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutes(context)) }
+    var reminderMinutes by remember { mutableStateOf(CourseReminderScheduler.getReminderMinutesSet(context)) }
     val reminderOptions = remember { CourseReminderScheduler.reminderMinuteOptions() }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -848,7 +865,7 @@ internal fun entriesForDate(
         .toList()
 }
 
-private fun NextCourseSnapshot.toCardState(): NextCourseCardState {
+private fun SharedNextCourseSnapshot.toCardState(): NextCourseCardState {
     return NextCourseCardState(
         title = entry.title.ifBlank { "未命名课程" },
         timeRange = "${formatMinutes(entry.startMinutes)} - ${formatMinutes(entry.endMinutes)}",

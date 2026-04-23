@@ -34,6 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -445,6 +449,10 @@ private fun TimeSlotCell(
             .height(height)
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0x2CFFFFFF))
+            .semantics {
+                role = Role.Button
+                contentDescription = buildTimeSlotContentDescription(index, slot)
+            }
             .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
     ) {
@@ -508,6 +516,10 @@ private fun WeekEntryBlock(
                 shape = RoundedCornerShape(18.dp),
             )
             .background(color)
+            .semantics {
+                role = Role.Button
+                contentDescription = buildWeekEntryContentDescription(entry)
+            }
             .clickable(onClick = onClick),
     ) {
         val showLocation = entry.location.isNotBlank() && maxHeight >= 88.dp

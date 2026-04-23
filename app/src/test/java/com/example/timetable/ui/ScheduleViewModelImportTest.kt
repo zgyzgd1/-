@@ -22,6 +22,18 @@ class ScheduleViewModelImportTest {
     }
 
     @Test
+    fun readLimitedUtf8TextRemovesUtf8Bom() {
+        val payload = "\uFEFFBEGIN:VCALENDAR"
+
+        val result = readLimitedUtf8Text(
+            inputStream = ByteArrayInputStream(payload.toByteArray(Charsets.UTF_8)),
+            maxBytes = payload.toByteArray(Charsets.UTF_8).size,
+        )
+
+        assertEquals("BEGIN:VCALENDAR", result)
+    }
+
+    @Test
     fun readLimitedUtf8TextRejectsOversizedPayload() {
         val payload = "0123456789ABCDEF"
 

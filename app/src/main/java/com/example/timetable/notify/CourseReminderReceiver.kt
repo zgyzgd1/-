@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.timetable.MainActivity
 import com.example.timetable.data.formatMinutes
+import com.example.timetable.ui.AppDestination
 
 class CourseReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -27,7 +28,13 @@ class CourseReminderReceiver : BroadcastReceiver() {
                     CourseReminderScheduler.defaultReminderMinutes(),
                 )
 
-                val openIntent = Intent(context, MainActivity::class.java)
+                val openIntent = MainActivity.createLaunchIntent(
+                    context = context,
+                    selectedDate = date.ifBlank { null },
+                    destination = AppDestination.DAY,
+                ).apply {
+                    action = Intent.ACTION_VIEW
+                }
                 val contentIntent = PendingIntent.getActivity(
                     context,
                     requestCode,

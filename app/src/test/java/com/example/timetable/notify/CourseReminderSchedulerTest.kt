@@ -117,6 +117,71 @@ class CourseReminderSchedulerTest {
     }
 
     @Test
+    fun buildSchedulePlanUsesEarliestConfiguredLeadTimeAcrossMultipleReminderSlots() {
+        val zone = ZoneId.systemDefault()
+        val courseDate = LocalDate.of(2099, 1, 5)
+        val nowMillis = courseDate.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+
+        val plan = CourseReminderScheduler.buildSchedulePlan(
+            entries = listOf(course("entry-a", courseDate, 8 * 60, 9 * 60)),
+            reminderMinutesOptions = listOf(10, 30),
+            nowMillis = nowMillis,
+            oldCodes = emptySet(),
+        )
+
+        val scheduled = plan.newSchedules.values.single()
+        val expectedTrigger = courseDate.atTime(7, 30).atZone(zone).toInstant().toEpochMilli()
+
+        assertEquals(30, scheduled.reminderMinutes)
+        assertEquals(expectedTrigger, scheduled.triggerAtMillis)
+    }
+
+    @Test
+    fun buildSchedulePlanKeepsLaterSameDayReminderWhenEarlierSlotAlreadyPassed() {
+        val zone = ZoneId.systemDefault()
+        val courseDate = LocalDate.of(2099, 1, 5)
+        val nowMillis = courseDate.atTime(7, 35).atZone(zone).toInstant().toEpochMilli()
+
+        val plan = CourseReminderScheduler.buildSchedulePlan(
+            entries = listOf(course("entry-a", courseDate, 8 * 60, 9 * 60)),
+            reminderMinutesOptions = listOf(10, 30),
+            nowMillis = nowMillis,
+            oldCodes = emptySet(),
+        )
+
+        val scheduled = plan.newSchedules.values.single()
+        val expectedTrigger = courseDate.atTime(7, 50).atZone(zone).toInstant().toEpochMilli()
+
+        assertEquals(courseDate, scheduled.occurrenceDate)
+        assertEquals(10, scheduled.reminderMinutes)
+        assertEquals(expectedTrigger, scheduled.triggerAtMillis)
+    }
+
+    @Test
+    fun normalizeReminderMinutesSortsDeduplicatesAndLimitsSelectionCount() {
+        assertEquals(
+            listOf(5, 10, 20, 30, 45),
+            CourseReminderScheduler.normalizeReminderMinutes(listOf(30, 5, 20, 10, 45, 60, 5, 0, 181)),
+        )
+    }
+
+    @Test
+    fun reminderSelectionFormattingSummarizesMultipleSlots() {
+        assertEquals(
+            "5 分钟、20 分钟、45 分钟",
+            CourseReminderScheduler.formatReminderSelection(listOf(45, 20, 5, 20)),
+        )
+        assertEquals(
+            "3档",
+            CourseReminderScheduler.formatReminderChipLabel(listOf(45, 20, 5)),
+        )
+        assertEquals(
+            "5m/20m",
+            CourseReminderScheduler.formatReminderChipLabel(listOf(20, 5)),
+        )
+    }
+
+    @Test
     fun isReminderMinutesValidAcceptsCustomRange() {
         assertTrue(CourseReminderScheduler.isReminderMinutesValid(45))
         assertTrue(CourseReminderScheduler.isReminderMinutesValid(180))

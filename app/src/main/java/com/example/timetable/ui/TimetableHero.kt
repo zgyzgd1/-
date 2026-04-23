@@ -47,6 +47,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,9 +65,9 @@ fun HeroSection(
     onImport: () -> Unit,
     onExport: () -> Unit,
     onEnableNotifications: () -> Unit,
-    reminderMinutes: Int,
+    reminderMinutes: List<Int>,
     reminderOptions: List<Int>,
-    onReminderMinutesChange: (Int) -> Unit,
+    onReminderMinutesChange: (List<Int>) -> Unit,
     backgroundMode: AppBackgroundMode,
     hasCustomBackground: Boolean,
     onSelectBackgroundImage: () -> Unit,
@@ -131,7 +135,7 @@ fun HeroSection(
                 )
                 HeroActionChip(
                     icon = Icons.Default.NotificationsActive,
-                    label = "提醒 ${reminderMinutes}m",
+                    label = "提醒 ${CourseReminderScheduler.formatReminderChipLabel(reminderMinutes)}",
                     onClick = { showReminderSheet = true },
                     modifier = Modifier.weight(1f),
                 )
@@ -189,6 +193,10 @@ private fun HeroActionChip(
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
+            .semantics {
+                role = Role.Button
+                contentDescription = buildHeroActionContentDescription(label)
+            }
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),
         shape = RoundedCornerShape(14.dp),
@@ -382,16 +390,45 @@ private fun AppearanceDialog(
 
 @Composable
 private fun ReminderPickerDialog(
-    reminderMinutes: Int,
+    reminderMinutes: List<Int>,
     reminderOptions: List<Int>,
     onDismiss: () -> Unit,
-    onSelect: (Int) -> Unit,
+    onSelect: (List<Int>) -> Unit,
     onEnableNotifications: () -> Unit,
 ) {
-    var customReminderText by remember(reminderMinutes) {
-        mutableStateOf(reminderMinutes.takeIf { it !in reminderOptions }?.toString().orEmpty())
+    var selectedReminderMinutes by remember(reminderMinutes) {
+        mutableStateOf(
+            CourseReminderScheduler.normalizeReminderMinutes(reminderMinutes)
+                .ifEmpty { CourseReminderScheduler.defaultReminderMinutesSet() },
+        )
     }
+    var customReminderText by remember { mutableStateOf("") }
     var customReminderError by remember { mutableStateOf<String?>(null) }
+    val maxReminderSelectionCount = CourseReminderScheduler.maxReminderSelectionCount()
+
+    fun updateSelectedReminderMinutes(updatedMinutes: List<Int>) {
+        selectedReminderMinutes = CourseReminderScheduler.normalizeReminderMinutes(updatedMinutes)
+            .ifEmpty { CourseReminderScheduler.defaultReminderMinutesSet() }
+        customReminderError = null
+    }
+
+    fun toggleReminder(option: Int) {
+        if (option in selectedReminderMinutes) {
+            if (selectedReminderMinutes.size == 1) {
+                customReminderError = "至少保留 1 档提醒"
+                return
+            }
+            updateSelectedReminderMinutes(selectedReminderMinutes - option)
+            return
+        }
+
+        if (selectedReminderMinutes.size >= maxReminderSelectionCount) {
+            customReminderError = "最多选择 $maxReminderSelectionCount 档提醒"
+            return
+        }
+
+        updateSelectedReminderMinutes(selectedReminderMinutes + option)
+    }
 
     fun submitCustomReminder() {
         val parsedMinutes = customReminderText.toIntOrNull()
@@ -399,8 +436,16 @@ private fun ReminderPickerDialog(
             customReminderError = "请输入 1-180 分钟"
             return
         }
-        customReminderError = null
-        onSelect(parsedMinutes)
+        if (parsedMinutes in selectedReminderMinutes) {
+            customReminderError = "该提醒时间已存在"
+            return
+        }
+        if (selectedReminderMinutes.size >= maxReminderSelectionCount) {
+            customReminderError = "最多选择 $maxReminderSelectionCount 档提醒"
+            return
+        }
+        customReminderText = ""
+        updateSelectedReminderMinutes(selectedReminderMinutes + parsedMinutes)
     }
 
     AlertDialog(
@@ -409,10 +454,31 @@ private fun ReminderPickerDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "选择课程开始前多久接收提醒通知",
+                    text = "可同时保存多档提醒时间，系统会按最近一次即将触发的提醒接力调度",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    text = "当前已选：${CourseReminderScheduler.formatReminderSelection(selectedReminderMinutes)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    selectedReminderMinutes.forEach { minute ->
+                        OutlinedButton(
+                            onClick = { toggleReminder(minute) },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text("${minute}m")
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier
@@ -421,16 +487,16 @@ private fun ReminderPickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     reminderOptions.forEach { option ->
-                        val selected = option == reminderMinutes
+                        val selected = option in selectedReminderMinutes
                         if (selected) {
                             Button(
-                                onClick = { onSelect(option) },
+                                onClick = { toggleReminder(option) },
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                             ) { Text("${option}m") }
                         } else {
                             OutlinedButton(
-                                onClick = { onSelect(option) },
+                                onClick = { toggleReminder(option) },
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                             ) { Text("${option}m") }
@@ -438,7 +504,7 @@ private fun ReminderPickerDialog(
                     }
                 }
                 Text(
-                    text = "也可以输入 1-180 分钟的自定义提醒时间",
+                    text = "也可以输入 1-180 分钟的自定义提醒时间，最多保存 $maxReminderSelectionCount 档",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -454,22 +520,25 @@ private fun ReminderPickerDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = customReminderError != null,
                     supportingText = {
-                        Text(customReminderError ?: "输入后点“保存自定义提醒”生效")
+                        Text(customReminderError ?: "输入后点击“添加自定义提醒”加入当前选择")
                     },
                 )
                 OutlinedButton(
                     onClick = ::submitCustomReminder,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("保存自定义提醒")
+                    Text("添加自定义提醒")
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onEnableNotifications) { Text("开启通知权限") }
+            TextButton(onClick = { onSelect(selectedReminderMinutes) }) { Text("保存") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onEnableNotifications) { Text("开启权限") }
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
         },
         shape = RoundedCornerShape(20.dp),
     )
