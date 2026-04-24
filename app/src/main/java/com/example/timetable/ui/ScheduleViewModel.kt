@@ -66,9 +66,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     init {
         viewModelScope.launch {
             TimetableRepository.ensureMigrated(getApplication())
-        }
-        viewModelScope.launch {
-            entries.collect { currentEntries ->
+            TimetableRepository.getEntriesStream(getApplication()).collect { currentEntries ->
                 syncReminders(currentEntries)
                 refreshWidgets(currentEntries)
             }
