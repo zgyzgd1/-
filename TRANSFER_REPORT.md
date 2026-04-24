@@ -1,15 +1,16 @@
 # 拾光课程表交接文档（2026-04-24）
 
-## 1. 当前发布目标
+## 1. 当前发布状态
 - 主仓库：`https://github.com/zgyzgd1/CXYtimetable`
 - 归档仓库：`https://github.com/zgyzgd1/apk-`
-- 本轮发布目标：`v1.24`
-- 版本号目标：
+- 当前最新发布：`v1.24`
+- 当前版本号：
   - `APP_VERSION_NAME=1.24`
   - `APP_VERSION_CODE=25`
 - 本轮 APK 名称：`Timetable-v1.24.apk`
 - 本轮 Release 地址：`https://github.com/zgyzgd1/CXYtimetable/releases/tag/v1.24`
 - 本轮归档路径：`apk-archive-repo/releases/Timetable-v1.24.apk`
+- 本轮 APK SHA256：`4E749BAA4D94A9A0FD06896B4A08F158254381B789269897B025176E8656C2B8`
 
 说明：本文件依据 `OPTIMIZATION_PLAN.md` 的阶段计划重写；`UI_OPTIMIZATION_PLAN.md` 不纳入本轮交接范围。
 
@@ -65,34 +66,35 @@
 - 发布链路：`testDebugUnitTest`、`assembleRelease`、GitHub Release、APK 归档流程已可重复执行。
 - 归档仓库已补齐历史缺口：`Timetable-v1.20.apk`、`Timetable-v1.21.apk`、`Timetable-v1.23.apk`。
 
-本轮待执行并交付：
-- 推送主仓库 `main` 到 GitHub。
-- 创建并推送 `v1.24` tag。
-- 上传 `Timetable-v1.24.apk` 到 GitHub Release。
-- 将 `Timetable-v1.24.apk` 复制到归档仓库并推送归档仓库。
+本轮已交付：
+- 主仓库 `main` 已推送到 GitHub。
+- `v1.24` tag 已创建并推送。
+- `Timetable-v1.24.apk` 已上传到 GitHub Release。
+- `Timetable-v1.24.apk` 已复制到归档仓库并推送归档仓库。
 
 ## 4. 本轮提交范围
 主仓库本轮相对 `v1.23` 的主要提交：
 - `1b7ee28` `Fix startup reminder sync and update transfer report`
 - `9c0e05c` `Structure reminder schedule signatures`
 - `ab8956a` `Reduce reminder schedule date recomputation`
-- 本文件重写提交：更新 2026-04-24 交接状态。
-- `Release v1.24`：版本号提升、发布 APK 构建与 GitHub Release。
+- `b6fca0b` `Update transfer report for v1.24 handoff`
+- `67b45e0` `Release v1.24`
 
 归档仓库本轮提交：
-- 补齐 `Timetable-v1.20.apk`、`Timetable-v1.21.apk`、`Timetable-v1.23.apk`。
-- 新增 `Timetable-v1.24.apk`。
-- 更新归档仓库 `README.md` 的版本清单。
+- `f908efb` `Archive timetable v1.20-v1.23 APKs`
+- `cc0d0e3` `Archive timetable v1.24 APK`
 
 ## 5. 关键验证
-已完成或本轮发布脚本会执行的验证：
+已完成的验证和发布操作：
 - `.\gradlew.bat --offline --no-daemon :app:compileDebugKotlin --rerun-tasks`
 - `.\gradlew.bat --offline --no-daemon testDebugUnitTest --tests com.example.timetable.ui.ScheduleViewModelSyncTokenTest --tests com.example.timetable.notify.CourseReminderSchedulerTest --rerun-tasks`
 - `.\gradlew.bat --offline --no-daemon testDebugUnitTest --tests com.example.timetable.notify.CourseReminderSchedulerTest --rerun-tasks`
 - `.\gradlew.bat --offline --no-daemon testDebugUnitTest`
 - `.\gradlew.bat --offline --no-daemon assembleRelease`
 - `git diff --check`
-- `scripts/push-github.ps1 -Version 1.24` 发布流：提交、推送、打 tag、上传 Release APK、同步归档仓库。
+- `scripts/push-github.ps1 -Version 1.24` 发布流：提交、推送、打 tag、上传 Release APK、同步归档仓库
+- GitHub API 核对：`v1.24` Release 存在，资产 `Timetable-v1.24.apk` 大小为 `18052792` bytes
+- 本地 release-assets 与归档仓库 APK 的 SHA256 一致：`4E749BAA4D94A9A0FD06896B4A08F158254381B789269897B025176E8656C2B8`
 
 已知环境提示：
 - 仍会出现既有 Android SDK XML version warning，不影响当前构建和测试结果。
@@ -113,5 +115,5 @@ P2 / 可维护性：
 
 ## 7. 交接结论
 - 本轮不是 UI 计划执行轮，未处理 `UI_OPTIMIZATION_PLAN.md`。
-- `v1.24` 的重点是 v1.23 后的提醒稳定性补审、结构化签名、启动同步顺序修复和发布归档链路闭环。
+- `v1.24` 的重点是 v1.23 后的提醒稳定性补审、结构化签名、启动同步顺序修复和发布归档链路闭环，当前已完成推送、Release 上传和归档。
 - 下一位接手者可从两个方向继续：一是补更强的提醒 fallback，二是把全局学期配置和当前周自动计算做成统一入口。
