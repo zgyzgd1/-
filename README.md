@@ -12,6 +12,13 @@
 
 ## 近期变化
 
+### `v1.27` Finalize UI optimizations and notifications
+
+- 优化主界面课程卡片与 Hero 区域的交互体验
+- 统一提醒时间格式化逻辑，修复中英文混杂问题
+- 完善单元测试覆盖，确保快照与调度逻辑稳定性
+- 升级 Android 构建链与依赖版本至最新稳定版
+
 ### `4cd856f` Add customizable background image support
 
 - 新增自定义背景图导入入口

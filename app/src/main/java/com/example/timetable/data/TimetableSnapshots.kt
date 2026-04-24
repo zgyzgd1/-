@@ -31,9 +31,9 @@ internal fun findNextCourseSnapshot(
             }
         } else {
             if (remainingMinutes > 0) {
-                "In progress, $remainingMinutes min until end"
+                "正在进行，距离下课 $remainingMinutes 分钟"
             } else {
-                "In progress"
+                "正在进行"
             }
         }
         return NextCourseSnapshot(
@@ -54,9 +54,9 @@ internal fun findNextCourseSnapshot(
             }
         } else {
             if (waitMinutes == 0) {
-                "Starting soon"
+                "即将开始"
             } else {
-                "Starts in $waitMinutes min"
+                "$waitMinutes 分钟后开始"
             }
         }
         return NextCourseSnapshot(
@@ -94,10 +94,10 @@ internal fun findNextCourseSnapshot(
         }
     } else {
         when (dayOffset) {
-            0 -> "Today"
-            1 -> "Tomorrow"
-            2 -> "Day after tomorrow"
-            else -> "In $dayOffset days"
+            0 -> "今天"
+            1 -> "明天"
+            2 -> "后天"
+            else -> "$dayOffset 天后"
         }
     }
     val startLabel = formatMinutes(resolvedEntry.startMinutes)
@@ -107,7 +107,7 @@ internal fun findNextCourseSnapshot(
         statusText = if (context != null) {
             context.getString(R.string.status_day_start, dayLabel, startLabel)
         } else {
-            "$dayLabel at $startLabel"
+            "$dayLabel $startLabel 开始"
         },
     )
 }

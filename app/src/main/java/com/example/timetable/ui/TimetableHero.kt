@@ -1,5 +1,7 @@
 package com.example.timetable.ui
 
+import android.content.Context
+import com.example.timetable.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -61,7 +63,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.timetable.R
 import com.example.timetable.data.AppBackgroundMode
 import com.example.timetable.notify.CourseReminderScheduler
 
@@ -205,12 +206,13 @@ private fun HeroActionChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .semantics {
                 role = Role.Button
-                contentDescription = buildHeroActionContentDescription(LocalContext.current, label)
+                contentDescription = buildHeroActionContentDescription(context, label)
             }
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f),

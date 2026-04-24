@@ -410,7 +410,7 @@ object CourseReminderScheduler {
      */
     fun formatReminderSelection(reminderMinutes: Iterable<Int>): String {
         val normalized = normalizeReminderMinutes(reminderMinutes).ifEmpty { defaultReminderMinutesSet() }
-        return normalized.joinToString(", ") { "$it min" }
+        return normalized.joinToString("、") { "$it 分钟" }
     }
 
     /**
@@ -426,7 +426,7 @@ object CourseReminderScheduler {
         return when (normalized.size) {
             1 -> "${normalized.first()}m"
             2 -> normalized.joinToString("/") { "${it}m" }
-            else -> "${normalized.size} options"
+            else -> "${normalized.size}档"
         }
     }
 
