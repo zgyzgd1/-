@@ -1,149 +1,62 @@
-# 课程表助手
+# 课程表助手 (Timetable Assistant)
 
 一个基于 Kotlin、Jetpack Compose 和 Material 3 的 Android 原生课表应用，强调本地离线、轻量界面和可维护的代码结构。
 
-## 当前能力
+---
 
-- 课程的新增、编辑、删除与按日期查看
-- `.ics` 课表导入与导出
-- 课前提醒与接力式闹钟调度
-- 本地 Room 持久化与旧 JSON 数据迁移
-- 自定义背景图导入，并在应用重启后保持生效
+## 全球项目审查报告 (2026-04-24)
 
-## 近期变化
+### 1. 架构评估 (Architecture Assessment)
+项目采用现代 Android 开发的最佳实践：
+- **MVVM 架构**: `ScheduleViewModel` 作为核心，通过 `StateFlow` 驱动 UI，实现了严格的单向数据流 (UDF)。
+- **Repository 模式**: `TimetableRepository` 封装了 Room 数据库操作，为 UI 层提供简洁、线程安全的数据访问接口。
+- **模块化 UI**: UI 层按功能拆分为 `DayScheduleList`、`WeekScheduleBoard` 等独立组件，有效解决了单文件膨胀问题（如 `ScheduleScreen` 的重构）。
+- **解耦逻辑**: ICS 解析、冲突检测 (`TimetableConflicts`) 和提醒调度 (`CourseReminderScheduler`) 均抽离为独立逻辑模块，易于测试和维护。
 
-### `v1.27` Finalize UI optimizations and notifications
+### 2. 技术亮点 (Technical Highlights)
+- **持久化方案**: 全面迁移至 **Room**，相比早期 JSON 存储，提供了更好的事务支持和查询性能。
+- **后台任务**: 实现了“接力式”提醒机制，结合 `AlarmManager` 的准时性和 `WorkManager` 的兜底补偿，平衡了功耗与提醒准确度。
+- **高度定制化**:
+    - 支持自定义背景图（含透明度、遮罩、裁剪位移调节）。
+    - 支持动态色相偏移，实现个性化主题色切换。
+- **数据兼容性**: 完善的 `.ics` 导入导出能力，支持自定义周次解析和重复规则。
 
-- 优化主界面课程卡片与 Hero 区域的交互体验
-- 统一提醒时间格式化逻辑，修复中英文混杂问题
-- 完善单元测试覆盖，确保快照与调度逻辑稳定性
-- 升级 Android 构建链与依赖版本至最新稳定版
+### 3. 工程质量与稳定性
+- **签名统一 (Milestone)**: 已完成对全版本（从 v0.8 到 v1.27）的签名统一。所有历史 APK 现均由正式 Release 密钥重签，解决了用户升级时的签名冲突痛点。
+- **自动化测试**: 核心业务逻辑（ICS 解析、日期计算、闹钟触发算法、数据快照）均由单元测试覆盖，确保了逻辑回归的安全性。
+- **发布流程**: 建立了标准化的 PowerShell 发布流，集成了版本自动提升、构建校验、GitHub Release 上传及 APK 自动化归档。
 
-### `4cd856f` Add customizable background image support
+### 4. 近期里程碑 (v1.27)
+- **统一本地化**: 修复了提醒格式化和状态文本中的中英文混杂问题，实现了全界面本地化对齐。
+- **归档一致性**: `apk-archive-repo` 现已同步所有正式签名的历史版本。
+- **UI 性能优化**: 优化了复杂周视图下的渲染逻辑，减少了不必要的 Recomposition。
 
-- 新增自定义背景图导入入口
-- 支持持久化保存图片 URI 和系统读取权限
-- 主界面增加背景图渲染层，并叠加遮罩保证内容可读
-- 补充背景图存储和缩放逻辑的单元测试
+### 5. 未来演进建议 (Roadmap)
+1. **云同步**: 引入 Firebase 或 WebDAV 实现跨设备数据备份。
+2. **无障碍增强**: 进一步完善 Compose 的 `semantics` 语义，提升 TalkBack 使用体验。
+3. **自动化 UI 测试**: 补充 `ComposeTestRule` 覆盖关键点击路径。
+4. **数据库演进**: 随着功能增加，需设计更精细的 Room 自动迁移 (Migration) 策略。
 
-### `3af1263` Fix reminder scheduling and legacy migration edge cases
-
-- 修复“没有未来课程时旧提醒不会被清除”的问题
-- 后台提醒重建前增加旧 JSON 数据迁移兜底
-- 去掉 Room 的破坏性迁移默认配置，避免后续版本静默清库
-- README 与实际代码状态重新对齐
-
-### `2873eb1` Upgrade Android build stack and clean warnings
-
-- 升级 Android 构建栈与依赖版本
-- 统一到较新的 Compose、Lifecycle、Room 和 SDK 配置
-- 清理一部分构建与代码层面的告警
-
-## 目前好的地方
-
-### 1. 架构比较清晰
-
-- UI、ViewModel、Repository、通知调度、ICS 解析基本分层明确
-- `ScheduleViewModel` 用 `StateFlow` 驱动界面，数据流方向简单
-- Room 已经替代旧 JSON 成为主数据源，读取和写入边界更稳定
-
-### 2. 功能闭环完整
-
-- 课表编辑、按日浏览、导入导出、提醒都已经串起来
-- 自定义背景图这样的偏个性化功能也已经接入持久化，不只是临时 UI 状态
-- 提醒逻辑采用“只保留最近一批提醒”的接力式策略，更符合 Android 后台限制
-
-### 3. 工程可继续演进
-
-- 关键逻辑已经有一批单元测试覆盖，包括 ICS、Repository、提醒计划和背景图辅助逻辑
-- 代码基本没有明显的大型 God Object，继续拆分和扩展的成本可控
-- 近期修复已经开始关注边界行为，而不只是表层界面改动
-
-## 目前不足
-
-### 1. 仍然偏本地单机应用
-
-- 没有账号体系
-- 没有云同步
-- 没有跨设备恢复能力
-
-### 2. 可访问性还不够
-
-- 自定义 Compose 组件缺少系统化的 `semantics`
-- TalkBack、无障碍朗读和大字体适配还不完整
-
-### 3. 测试覆盖还不均衡
-
-- 当前以单元测试为主
-- 缺少 Compose UI 测试和真机或仪器测试
-- 图片选择、通知权限、系统文档选择器这类系统交互还没有自动化覆盖
-
-### 4. 发布流程还不够正式
-
-- 仓库当前不内置正式的 release keystore
-- GitHub Release 和发布脚本现在要求在本机或 CI 中显式提供 `RELEASE_STORE_FILE`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`
-- 如果未提供上述配置，`assembleRelease` 只会生成 unsigned APK，发布脚本会直接失败
-
-### 5. 数据库版本演进还要继续补
-
-- 现在主存储已经切到 Room
-- 但未来 schema 变化时，仍然需要显式 migration 方案
-- 否则版本升级会成为新的维护风险点
-
-## 项目结构
-
-```text
-app/src/main/java/com/example/timetable/
-├── data/
-│   ├── BackgroundImageStore.kt
-│   ├── IcsCalendar.kt
-│   ├── TimetableModels.kt
-│   ├── TimetableRepository.kt
-│   └── room/
-├── notify/
-│   ├── CourseReminderReceiver.kt
-│   ├── CourseReminderRescheduleReceiver.kt
-│   └── CourseReminderScheduler.kt
-└── ui/
-    ├── ScheduleBackground.kt
-    ├── ScheduleScreen.kt
-    ├── ScheduleViewModel.kt
-    ├── Theme.kt
-    ├── TimetableCalendar.kt
-    ├── TimetableCards.kt
-    ├── TimetableDialogs.kt
-    └── TimetableHero.kt
-```
+---
 
 ## 技术栈
+- **语言**: Kotlin (Coroutines, Flow)
+- **界面**: Jetpack Compose, Material 3
+- **存储**: Room (SQLite)
+- **工具**: WorkManager, AlarmManager
+- **构建**: Gradle Kotlin DSL, KSP
 
-- Kotlin
-- Jetpack Compose
-- Material 3
-- AndroidX Lifecycle
-- Room
-- Coroutines
-
-## 构建环境
-
-- `minSdk = 26`
-- `targetSdk = 36`
-- Java 17
-- Gradle + Android Gradle Plugin
-
-常用命令：
-
+## 快速开始
 ```powershell
+# 运行单元测试
 .\gradlew.bat testDebugUnitTest
+
+# 构建调试包
 .\gradlew.bat assembleDebug
-.\gradlew.bat assembleRelease
+
+# 执行一键发布流 (含备份、推送、构建、发布、归档)
+.\scripts\push-github.ps1 -Message "Your update message"
 ```
 
-## 适合的下一步
-
-- 参考 [GITHUB_UI_RESEARCH.md](/e:/vswenjian_workspace_copy/GITHUB_UI_RESEARCH.md:1) 评估可接入的 Compose 周历 / 周选择器库
-- 补正式 release 签名配置
-- 为关键交互增加 Compose UI 测试
-- 增加无障碍语义和更完整的内容描述
-- 设计数据库显式迁移策略
-- 如果产品目标扩大，再考虑云同步和账号系统
+## 许可证
+本项目采用 MIT 许可证。
