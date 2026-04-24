@@ -1,8 +1,5 @@
-package com.example.timetable.ui
+package com.example.timetable.data
 
-import com.example.timetable.data.RecurrenceType
-import com.example.timetable.data.TimetableEntry
-import com.example.timetable.data.WeekRule
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -10,7 +7,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class ScheduleViewModelConflictTest {
+class TimetableConflictsTest {
 
     @Test
     fun findConflictForEntryReturnsOverlappedEntryOnSameDate() {
@@ -167,6 +164,47 @@ class ScheduleViewModelConflictTest {
         assertNotEquals(9 * 60, adjusted?.startMinutes)
         assertEquals(10 * 60, adjusted?.startMinutes)
         assertEquals(11 * 60, adjusted?.endMinutes)
+    }
+
+    @Test
+    fun countConflictPairsCountsOnlyEntriesThatOverlapInTimeAndOccurrenceDate() {
+        val date = LocalDate.of(2026, 4, 22)
+        val first = entry(
+            title = "Database",
+            date = date,
+            startMinutes = 8 * 60,
+            endMinutes = 9 * 60,
+        )
+        val overlappingSameDate = entry(
+            title = "Operating System",
+            date = date,
+            startMinutes = 8 * 60 + 30,
+            endMinutes = 9 * 60 + 30,
+        )
+        val overlappingDifferentDate = entry(
+            title = "Computer Network",
+            date = date.plusDays(1),
+            startMinutes = 8 * 60 + 30,
+            endMinutes = 9 * 60 + 30,
+        )
+        val sameDateDifferentTime = entry(
+            title = "English",
+            date = date,
+            startMinutes = 10 * 60,
+            endMinutes = 11 * 60,
+        )
+
+        assertEquals(
+            1,
+            countConflictPairs(
+                listOf(
+                    first,
+                    overlappingSameDate,
+                    overlappingDifferentDate,
+                    sameDateDifferentTime,
+                ),
+            ),
+        )
     }
 
     private fun entry(

@@ -11,21 +11,20 @@ import com.example.timetable.data.RecurrenceType
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.TimetableRepository
 import com.example.timetable.data.WeekRule
+import com.example.timetable.data.countConflictPairs
+import com.example.timetable.data.findConflictForEntry
 import com.example.timetable.data.formatMinutes
 import com.example.timetable.data.occursOnDate
 import com.example.timetable.data.parseEntryDate
 import com.example.timetable.data.parseWeekList
 import com.example.timetable.data.resolveRecurrenceType
 import com.example.timetable.data.resolveWeekRule
-import com.example.timetable.data.weekIndexFromSemesterStart
+import com.example.timetable.data.suggestAdjustedEntryAfterConflicts
 import com.example.timetable.notify.CourseReminderScheduler
 import com.example.timetable.widget.TimetableWidgetUpdater
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.time.DayOfWeek
-import java.time.LocalDate
-import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -282,28 +281,6 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             .replace(" ", "")
     }
 
-    private fun findConflict(target: TimetableEntry, entriesList: List<TimetableEntry>): TimetableEntry? {
-        return findConflictForEntry(target, entriesList)
-    }
-
-    private fun countConflictPairs(entriesList: List<TimetableEntry>): Int {
-        var pairs = 0
-        val sorted = entriesList.sortedBy { it.startMinutes }
-        for (index in sorted.indices) {
-            val current = sorted[index]
-            for (nextIndex in index + 1 until sorted.size) {
-                val next = sorted[nextIndex]
-                if (current.startMinutes >= next.endMinutes || next.startMinutes >= current.endMinutes) {
-                    continue
-                }
-                if (entriesShareAnyOccurrenceDate(current, next)) {
-                    pairs++
-                }
-            }
-        }
-        return pairs
-    }
-
     private fun syncReminders(entriesList: List<TimetableEntry>, force: Boolean = false) {
         val generation = ++reminderSyncGeneration
         reminderSyncJob?.cancel()
@@ -376,133 +353,6 @@ private fun formatImportSize(maxBytes: Int): String {
         maxBytes >= kibibyte && maxBytes % kibibyte == 0 -> "${maxBytes / kibibyte} KB"
         else -> "$maxBytes bytes"
     }
-}
-
-internal fun findConflictForEntry(
-    target: TimetableEntry,
-    entriesList: List<TimetableEntry>,
-): TimetableEntry? {
-    return entriesList.firstOrNull { existing ->
-        existing.id != target.id &&
-            target.startMinutes < existing.endMinutes &&
-            existing.startMinutes < target.endMinutes &&
-            entriesShareAnyOccurrenceDate(target, existing)
-    }
-}
-
-internal fun suggestAdjustedEntryAfterConflicts(
-    target: TimetableEntry,
-    entriesList: List<TimetableEntry>,
-): TimetableEntry? {
-    val duration = target.endMinutes - target.startMinutes
-    if (duration <= 0) return null
-
-    val conflictingEntries = entriesList
-        .asSequence()
-        .filter { it.id != target.id && entriesShareAnyOccurrenceDate(it, target) }
-        .sortedBy { it.startMinutes }
-        .toList()
-
-    var candidateStart = target.startMinutes
-    var candidateEnd = candidateStart + duration
-    if (candidateEnd > 24 * 60) return null
-
-    for (existing in conflictingEntries) {
-        if (existing.endMinutes <= candidateStart) continue
-        if (existing.startMinutes >= candidateEnd) break
-        candidateStart = existing.endMinutes
-        candidateEnd = candidateStart + duration
-        if (candidateEnd > 24 * 60) return null
-    }
-
-    return target.copy(
-        startMinutes = candidateStart,
-        endMinutes = candidateEnd,
-    )
-}
-
-private fun entriesShareAnyOccurrenceDate(
-    first: TimetableEntry,
-    second: TimetableEntry,
-): Boolean {
-    val firstRecurrence = resolveRecurrenceType(first.recurrenceType) ?: RecurrenceType.NONE
-    val secondRecurrence = resolveRecurrenceType(second.recurrenceType) ?: RecurrenceType.NONE
-    val firstDate = parseEntryDate(first.date) ?: return false
-    val secondDate = parseEntryDate(second.date) ?: return false
-
-    if (firstRecurrence == RecurrenceType.NONE && secondRecurrence == RecurrenceType.NONE) {
-        return firstDate == secondDate
-    }
-    if (firstRecurrence == RecurrenceType.NONE) {
-        return occursOnDate(second, firstDate)
-    }
-    if (secondRecurrence == RecurrenceType.NONE) {
-        return occursOnDate(first, secondDate)
-    }
-    if (first.dayOfWeek != second.dayOfWeek) return false
-
-    val firstCustomDates = customOccurrenceDates(first)
-    val secondCustomDates = customOccurrenceDates(second)
-    return when {
-        firstCustomDates != null && secondCustomDates != null -> {
-            val secondDateSet = secondCustomDates.toHashSet()
-            firstCustomDates.any(secondDateSet::contains)
-        }
-        firstCustomDates != null -> firstCustomDates.any { occursOnDate(second, it) }
-        secondCustomDates != null -> secondCustomDates.any { occursOnDate(first, it) }
-        else -> {
-            val searchStart = maxOf(firstDate, secondDate)
-            val candidateCount = maxOf(relevantSearchWeeks(first), relevantSearchWeeks(second)) + 2
-            generateSequence(searchStart) { it.plusWeeks(1) }
-                .take(candidateCount.coerceAtLeast(2))
-                .any { date -> occursOnDate(first, date) && occursOnDate(second, date) }
-        }
-    }
-}
-
-private fun customOccurrenceDates(entry: TimetableEntry): List<LocalDate>? {
-    val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: return null
-    if (recurrence != RecurrenceType.WEEKLY) return null
-    val weekRule = resolveWeekRule(entry.weekRule) ?: return null
-    if (weekRule != WeekRule.CUSTOM) return null
-
-    val firstDate = parseEntryDate(entry.date) ?: return emptyList()
-    val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
-        ?: firstDate
-    val semesterWeekStart = semesterStartDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-    val customWeeks = parseWeekList(entry.customWeekList).orEmpty()
-    val skippedWeeks = parseWeekList(entry.skipWeekList).orEmpty()
-    val dayOffset = (entry.dayOfWeek - 1).coerceIn(0, 6)
-
-    return customWeeks
-        .asSequence()
-        .filter { it !in skippedWeeks }
-        .sorted()
-        .map { weekNumber ->
-            semesterWeekStart
-                .plusWeeks((weekNumber - 1).toLong())
-                .plusDays(dayOffset.toLong())
-        }
-        .filter { !it.isBefore(firstDate) && occursOnDate(entry, it) }
-        .toList()
-}
-
-private fun relevantSearchWeeks(entry: TimetableEntry): Int {
-    val recurrence = resolveRecurrenceType(entry.recurrenceType) ?: return 0
-    if (recurrence != RecurrenceType.WEEKLY) return 0
-
-    val firstDate = parseEntryDate(entry.date) ?: return 0
-    val semesterStartDate = parseEntryDate(entry.semesterStartDate).takeIf { entry.semesterStartDate.isNotBlank() }
-        ?: firstDate
-    val firstWeek = weekIndexFromSemesterStart(semesterStartDate, firstDate) ?: 1
-    val customWeeks = parseWeekList(entry.customWeekList).orEmpty()
-    val skippedWeeks = parseWeekList(entry.skipWeekList).orEmpty()
-
-    return maxOf(
-        firstWeek,
-        customWeeks.maxOrNull() ?: 0,
-        skippedWeeks.maxOrNull() ?: 0,
-    )
 }
 
 internal fun reminderSyncToken(

@@ -11,7 +11,8 @@
 - 本轮 Release 地址：`https://github.com/zgyzgd1/CXYtimetable/releases/tag/v1.24`
 - 本轮归档路径：`apk-archive-repo/releases/Timetable-v1.24.apk`
 - 本轮 APK SHA256：`4E749BAA4D94A9A0FD06896B4A08F158254381B789269897B025176E8656C2B8`
-- 当前主仓库最新提交：`82a4044` `Finalize transfer report after v1.24 release`
+- 当前主仓库最新已推送提交：`82a4044` `Finalize transfer report after v1.24 release`
+- 当前主仓库本地待推送提交：`4c06ef0` `Update handoff task list`；`Centralize timetable conflict checks`
 - 当前归档仓库最新提交：`cc0d0e3` `Archive timetable v1.24 APK`
 
 说明：本文件依据 `OPTIMIZATION_PLAN.md` 的阶段计划重写；`UI_OPTIMIZATION_PLAN.md` 不纳入本轮交接范围。
@@ -36,12 +37,13 @@
 已落地能力：
 - 单双周、跳周、自定义周等课程规则已进入数据层快照计算。
 - `entriesByDateInRange(...)`、`findNextCourseSnapshot(...)`、`NextCourseSnapshot` 已下沉到数据层。
+- 保存前冲突检测已下沉为 `TimetableConflicts.kt` 数据层入口，编辑保存、导入冲突计数和测试复用同一套时间/日期重叠规则。
 - 遗留 JSON 迁移已收敛到仓库级 `Mutex` + Room 事务，降低启动竞态风险。
 - 遗留 JSON 解码失败时不再误注入样例课表，也不会删除原始旧文件。
 
 仍待继续：
 - 全局学期配置 / 当前周自动计算还缺统一入口。
-- 冲突检测仍可继续补强为保存前的统一校验链路。
+- 冲突检测下一步可补导入前阻断/确认策略，而不是仅导入后提示冲突数量。
 
 ### 阶段 3：提醒与桌面效率
 状态：已完成并继续补审加固。
@@ -82,6 +84,8 @@
 - `b6fca0b` `Update transfer report for v1.24 handoff`
 - `67b45e0` `Release v1.24`
 - `82a4044` `Finalize transfer report after v1.24 release`
+- `4c06ef0` `Update handoff task list`
+- 本轮继续提交 `Centralize timetable conflict checks`：冲突检测规则下沉到 data 层，`ScheduleViewModel` 改为复用统一入口
 
 归档仓库本轮提交：
 - `f908efb` `Archive timetable v1.20-v1.23 APKs`
@@ -98,6 +102,9 @@
 - `scripts/push-github.ps1 -Version 1.24` 发布流：提交、推送、打 tag、上传 Release APK、同步归档仓库
 - GitHub API 核对：`v1.24` Release 存在，资产 `Timetable-v1.24.apk` 大小为 `18052792` bytes
 - 本地 release-assets 与归档仓库 APK 的 SHA256 一致：`4E749BAA4D94A9A0FD06896B4A08F158254381B789269897B025176E8656C2B8`
+- `.\gradlew.bat --offline --no-daemon testDebugUnitTest --tests com.example.timetable.data.TimetableConflictsTest --rerun-tasks`
+- `.\gradlew.bat --offline --no-daemon :app:compileDebugKotlin --rerun-tasks`
+- `.\gradlew.bat --offline --no-daemon testDebugUnitTest`
 
 已知环境提示：
 - 仍会出现既有 Android SDK XML version warning，不影响当前构建和测试结果。
@@ -107,7 +114,7 @@
 
 P0 / 功能正确性：
 - 提醒兜底：补 Android 14+ 精确闹钟权限关闭、系统回收、时间/时区变化后的降级和重新同步策略；可评估 `WorkManager` 作为非精确兜底，但不要替代当前精确提醒路径。
-- 保存前冲突检测：把课程时间冲突、同日重叠和循环课冲突整理成统一校验入口，并在新增/编辑/导入后复用同一套规则。
+- 保存前冲突检测：统一规则入口已完成；后续重点是导入前冲突确认、冲突详情展示和更完整的 UI/集成测试。
 - 数据库版本演进：继续补 Room 显式迁移策略，避免未来版本升级重新引入静默清库风险。
 
 P1 / 性能与稳定性：
@@ -143,4 +150,4 @@ P2 / 可维护性：
 ## 8. 交接结论
 - 本轮不是 UI 计划执行轮，未处理 `UI_OPTIMIZATION_PLAN.md`。
 - `v1.24` 的重点是 v1.23 后的提醒稳定性补审、结构化签名、启动同步顺序修复和发布归档链路闭环，当前已完成推送、Release 上传和归档。
-- 下一位接手者优先看第 6 节任务清单：先做提醒兜底和保存前冲突检测，再推进最近提醒候选扫描、学期配置入口和数据库迁移策略。
+- 下一位接手者优先看第 6 节任务清单：先做提醒兜底和数据库迁移策略，再推进导入冲突确认、最近提醒候选扫描和学期配置入口。
