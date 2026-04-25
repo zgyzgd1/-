@@ -3,6 +3,7 @@ package com.example.timetable.widget
 import android.content.Context
 import com.example.timetable.data.TimetableEntry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -26,11 +27,11 @@ class TimetableWidgetUpdaterTest {
             entry(title = "化学", date = today, startMinutes = 15 * 60, endMinutes = 16 * 60),
         )
 
-        val state = buildTodayScheduleWidgetState(entries, today, context = context)
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 8 * 60, context = context)
 
-        assertTrue(state.summaryText.contains("4"))
-        assertEquals(3, state.entryLines.size)
-        assertTrue(state.entryLines.first().contains("高数"))
+        assertEquals(MAX_VISIBLE_COURSES, state.courseItems.size)
+        assertTrue(state.dateLabel.contains("4/23"))
+        assertEquals("高数", state.courseItems[0].title)
         assertEquals(today, state.targetDate)
     }
 
@@ -38,10 +39,89 @@ class TimetableWidgetUpdaterTest {
     fun buildTodayScheduleWidgetStateShowsEmptyState() {
         val today = LocalDate.of(2026, 4, 23)
 
-        val state = buildTodayScheduleWidgetState(emptyList(), today, context = context)
+        val state = buildTodayScheduleWidgetState(emptyList(), today, nowMinutes = 12 * 60, context = context)
 
-        assertTrue(state.entryLines.isNotEmpty())
+        assertTrue(state.courseItems.isEmpty())
+        assertNotNull(state.emptyText)
         assertEquals(today, state.targetDate)
+    }
+
+    @Test
+    fun buildTodayScheduleWidgetStateClearsEmptyTextWhenCoursesExist() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = listOf(
+            entry(title = "高数", date = today, startMinutes = 8 * 60, endMinutes = 9 * 60),
+        )
+
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 8 * 60, context = context)
+
+        assertEquals(null, state.emptyText)
+    }
+
+    @Test
+    fun isPastTrueWhenCourseEnded() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = listOf(
+            entry(title = "早课", date = today, startMinutes = 8 * 60, endMinutes = 9 * 60),
+        )
+
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 10 * 60, context = context)
+
+        assertTrue(state.courseItems[0].isPast)
+    }
+
+    @Test
+    fun isPastFalseWhenCourseNotYetStarted() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = listOf(
+            entry(title = "晚课", date = today, startMinutes = 18 * 60, endMinutes = 19 * 60),
+        )
+
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 8 * 60, context = context)
+
+        assertFalse(state.courseItems[0].isPast)
+    }
+
+    @Test
+    fun isPastFalseWhenCourseOngoing() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = listOf(
+            entry(title = "进行中", date = today, startMinutes = 9 * 60, endMinutes = 10 * 60),
+        )
+
+        // nowMinutes is 9:30, which is within startMinutes..endMinutes
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 9 * 60 + 30, context = context)
+
+        assertFalse(state.courseItems[0].isPast)
+    }
+
+    @Test
+    fun isPastMixedStateInCourseList() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = listOf(
+            entry(title = "早课", date = today, startMinutes = 8 * 60, endMinutes = 9 * 60),
+            entry(title = "中课", date = today, startMinutes = 10 * 60, endMinutes = 11 * 60),
+            entry(title = "晚课", date = today, startMinutes = 14 * 60, endMinutes = 15 * 60),
+        )
+
+        // nowMinutes is 10:30: first course ended, second is ongoing, third not started
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 10 * 60 + 30, context = context)
+
+        assertTrue(state.courseItems[0].isPast)   // 8:00-9:00 ended
+        assertFalse(state.courseItems[1].isPast)   // 10:00-11:00 ongoing
+        assertFalse(state.courseItems[2].isPast)   // 14:00-15:00 not started
+    }
+
+    @Test
+    fun buildTodayScheduleWidgetStateTruncatesToMaxVisibleCourses() {
+        val today = LocalDate.of(2026, 4, 23)
+        val entries = (1..6).map { i ->
+            entry(title = "课$i", date = today, startMinutes = (8 + i) * 60, endMinutes = (9 + i) * 60)
+        }
+
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes = 8 * 60, context = context)
+
+        assertEquals(MAX_VISIBLE_COURSES, state.courseItems.size)
     }
 
     @Test
@@ -83,6 +163,10 @@ class TimetableWidgetUpdaterTest {
         val state = buildNextCourseWidgetState(entries, today = today, nowMinutes = 18 * 60, context = context)
 
         assertEquals(today, state.targetDate)
+    }
+
+    private fun assertNotNull(value: String?) {
+        org.junit.Assert.assertNotNull(value)
     }
 
     private fun entry(

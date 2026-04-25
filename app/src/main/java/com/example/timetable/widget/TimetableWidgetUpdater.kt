@@ -54,7 +54,7 @@ object TimetableWidgetUpdater {
         val appContext = context.applicationContext
         if (!hasAnyActiveWidgets(appContext, appWidgetManager)) return
         updateNextCourseWidgets(appContext, appWidgetManager, entries, today, nowMinutes)
-        updateTodayScheduleWidgets(appContext, appWidgetManager, entries, today)
+        updateTodayScheduleWidgets(appContext, appWidgetManager, entries, today, nowMinutes)
     }
 
     internal fun hasAnyActiveWidgets(
@@ -89,11 +89,12 @@ object TimetableWidgetUpdater {
         appWidgetManager: AppWidgetManager,
         entries: List<TimetableEntry>,
         today: LocalDate,
+        nowMinutes: Int,
     ) {
         val appWidgetIds = appWidgetManager.getAppWidgetIds(ComponentName(context, TodayScheduleWidgetProvider::class.java))
         if (appWidgetIds.isEmpty()) return
 
-        val state = buildTodayScheduleWidgetState(entries, today, context)
+        val state = buildTodayScheduleWidgetState(entries, today, nowMinutes, context)
         appWidgetIds.forEach { appWidgetId ->
             val views = buildTodayScheduleRemoteViews(context, appWidgetId, state)
             appWidgetManager.updateAppWidget(appWidgetId, views)
@@ -103,10 +104,15 @@ object TimetableWidgetUpdater {
 
 internal data class TodayScheduleWidgetState(
     val dateLabel: String,
-    val summaryText: String,
-    val entryLines: List<String>,
-    val overflowText: String,
+    val courseItems: List<CourseItem>,
+    val emptyText: String?,
     val targetDate: LocalDate,
+)
+
+internal data class CourseItem(
+    val title: String,
+    val time: String,
+    val isPast: Boolean = false,
 )
 
 internal data class NextCourseWidgetState(
@@ -120,38 +126,26 @@ internal data class NextCourseWidgetState(
 internal fun buildTodayScheduleWidgetState(
     entries: List<TimetableEntry>,
     today: LocalDate = LocalDate.now(),
+    nowMinutes: Int = LocalTime.now().let { it.hour * 60 + it.minute },
     context: Context,
 ): TodayScheduleWidgetState {
     val todayEntries = entriesForDate(entries, today)
-    val entryLines = todayEntries
-        .take(3)
+    val courseItems = todayEntries
+        .take(MAX_VISIBLE_COURSES)
         .map { entry ->
-            buildString {
-                append(formatMinutes(entry.startMinutes))
-                append(" - ")
-                append(formatMinutes(entry.endMinutes))
-                append("  ")
-                append(entry.title.ifBlank { context.getString(R.string.label_unnamed_course) })
-                if (entry.location.isNotBlank()) {
-                    append(" / ")
-                    append(entry.location)
-                }
-            }
+            CourseItem(
+                title = entry.title.ifBlank { context.getString(R.string.label_unnamed_course) },
+                time = "${formatMinutes(entry.startMinutes)}-${formatMinutes(entry.endMinutes)}",
+                isPast = entry.endMinutes < nowMinutes,
+            )
         }
 
+    val emptyText = if (courseItems.isEmpty()) context.getString(R.string.widget_no_courses_today) else null
+
     return TodayScheduleWidgetState(
-        dateLabel = formatWidgetDateLabel(today, context),
-        summaryText = if (todayEntries.isEmpty()) {
-            context.getString(R.string.widget_no_courses_today)
-        } else {
-            context.getString(R.string.widget_today_course_count, todayEntries.size)
-        },
-        entryLines = if (entryLines.isEmpty()) listOf(context.getString(R.string.widget_tap_to_add)) else entryLines,
-        overflowText = if (todayEntries.size > entryLines.size) {
-            context.getString(R.string.widget_more_hidden, todayEntries.size - entryLines.size)
-        } else {
-            ""
-        },
+        dateLabel = "${today.monthValue}/${today.dayOfMonth}${dayLabel(today.dayOfWeek.value)}",
+        courseItems = courseItems,
+        emptyText = emptyText,
         targetDate = today,
     )
 }
@@ -183,18 +177,97 @@ internal fun buildNextCourseWidgetState(
     )
 }
 
+/** Pre-computed view ID arrays to avoid [android.content.res.Resources.getIdentifier] at runtime. */
+private val COURSE_ITEM_IDS = intArrayOf(
+    R.id.widget_course_item_1,
+    R.id.widget_course_item_2,
+    R.id.widget_course_item_3,
+    R.id.widget_course_item_4,
+)
+
+private val COURSE_TITLE_IDS = intArrayOf(
+    R.id.widget_course_title_1,
+    R.id.widget_course_title_2,
+    R.id.widget_course_title_3,
+    R.id.widget_course_title_4,
+)
+
+private val COURSE_TIME_IDS = intArrayOf(
+    R.id.widget_course_time_1,
+    R.id.widget_course_time_2,
+    R.id.widget_course_time_3,
+    R.id.widget_course_time_4,
+)
+
+private val COURSE_DOT_IDS = intArrayOf(
+    R.id.widget_course_dot_1,
+    R.id.widget_course_dot_2,
+    R.id.widget_course_dot_3,
+    R.id.widget_course_dot_4,
+)
+
+/** Maximum number of course items displayed in the today schedule widget. Must match the layout. */
+internal const val MAX_VISIBLE_COURSES = 4
+
 private fun buildTodayScheduleRemoteViews(
     context: Context,
     appWidgetId: Int,
     state: TodayScheduleWidgetState,
 ): RemoteViews {
+    val titleActiveColor = context.getColor(R.color.widget_course_title_active)
+    val titlePastColor = context.getColor(R.color.widget_course_title_past)
+    val timeActiveColor = context.getColor(R.color.widget_course_time_active)
+    val timePastColor = context.getColor(R.color.widget_course_time_past)
+
     return RemoteViews(context.packageName, R.layout.widget_today_schedule).apply {
         setTextViewText(R.id.widget_today_date, state.dateLabel)
-        setTextViewText(R.id.widget_today_summary, state.summaryText)
-        bindTextLine(R.id.widget_today_line_one, state.entryLines.getOrNull(0))
-        bindTextLine(R.id.widget_today_line_two, state.entryLines.getOrNull(1))
-        bindTextLine(R.id.widget_today_line_three, state.entryLines.getOrNull(2))
-        bindTextLine(R.id.widget_today_overflow, state.overflowText.ifBlank { null })
+
+        // Empty state handling
+        if (state.emptyText != null) {
+            setViewVisibility(R.id.widget_course_list, View.GONE)
+            setViewVisibility(R.id.widget_empty_state, View.VISIBLE)
+            setTextViewText(R.id.widget_empty_state, state.emptyText)
+        } else {
+            setViewVisibility(R.id.widget_course_list, View.VISIBLE)
+            setViewVisibility(R.id.widget_empty_state, View.GONE)
+        }
+
+        for (i in 0 until MAX_VISIBLE_COURSES) {
+            val item = state.courseItems.getOrNull(i)
+            val itemId = COURSE_ITEM_IDS[i]
+            val titleId = COURSE_TITLE_IDS[i]
+            val timeId = COURSE_TIME_IDS[i]
+            val dotId = COURSE_DOT_IDS[i]
+
+            if (item != null) {
+                setViewVisibility(itemId, View.VISIBLE)
+                setTextViewText(titleId, item.title)
+                setTextViewText(timeId, item.time)
+
+                if (item.isPast) {
+                    setTextColor(titleId, titlePastColor)
+                    setTextColor(timeId, timePastColor)
+                    setImageViewResource(dotId, R.drawable.widget_course_dot_past)
+                } else {
+                    setTextColor(titleId, titleActiveColor)
+                    setTextColor(timeId, timeActiveColor)
+                    setImageViewResource(dotId, R.drawable.widget_course_dot)
+                }
+            } else {
+                setViewVisibility(itemId, View.GONE)
+            }
+        }
+
+        // "+" button → open app to add course
+        setOnClickPendingIntent(
+            R.id.widget_today_add_btn,
+            createAddCoursePendingIntent(
+                context = context,
+                appWidgetId = appWidgetId,
+                selectedDate = state.targetDate.toString(),
+            ),
+        )
+
         setOnClickPendingIntent(
             R.id.widget_today_root,
             createOpenAppPendingIntent(
@@ -229,15 +302,6 @@ private fun buildNextCourseRemoteViews(
     }
 }
 
-private fun RemoteViews.bindTextLine(viewId: Int, text: String?) {
-    if (text.isNullOrBlank()) {
-        setViewVisibility(viewId, View.GONE)
-    } else {
-        setViewVisibility(viewId, View.VISIBLE)
-        setTextViewText(viewId, text)
-    }
-}
-
 private fun createOpenAppPendingIntent(
     context: Context,
     widgetType: String,
@@ -258,6 +322,30 @@ private fun createOpenAppPendingIntent(
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 }
+
+private fun createAddCoursePendingIntent(
+    context: Context,
+    appWidgetId: Int,
+    selectedDate: String,
+): PendingIntent {
+    val intent = MainActivity.createLaunchIntent(
+        context = context,
+        selectedDate = selectedDate,
+        destination = AppDestination.DAY,
+    ).apply {
+        data = Uri.parse("timetable://widget/add/$appWidgetId?date=$selectedDate")
+        putExtra(EXTRA_WIDGET_ADD_COURSE, true)
+    }
+    return PendingIntent.getActivity(
+        context,
+        appWidgetId + 1000,
+        intent,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+}
+
+/** Extra key to signal that the widget "+" button was tapped. */
+internal const val EXTRA_WIDGET_ADD_COURSE = "extra_widget_add_course"
 
 private fun buildNextCourseTimeLabel(
     snapshot: NextCourseSnapshot,

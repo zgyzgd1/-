@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget course item colors -->
+    <color name="widget_course_title_active">#FFFFFF</color>
+    <color name="widget_course_title_past">#808080</color>
+    <color name="widget_course_time_active">#B0B0B0</color>
+    <color name="widget_course_time_past">#606060</color>
+
+    <!-- Widget course dot colors -->
+    <color name="widget_course_dot_active">#4A90D9</color>
+    <color name="widget_course_dot_past">#606060</color>
+</resources>
