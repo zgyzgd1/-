@@ -37,6 +37,7 @@
     <string name="msg_slot_time_overlap">节次时间不能重叠</string>
     <string name="msg_slot_deleted">已删除第 %1$d 节</string>
     <string name="msg_slot_added">已新增第 %1$d 节</string>
+    <string name="msg_slot_added_success">已成功新增节次</string>
     <string name="msg_slots_resized">已调整为 %1$d 节</string>
     <string name="msg_slots_resize_limited">只能扩展到 %1$d 节，后续时间不足</string>
     <string name="msg_unknown_error">未知错误</string>

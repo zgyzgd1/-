@@ -61,7 +61,7 @@ data class WeekViewConfig(
 /**
  * 周视图数据类
  */
-data class WeekViewData(
+internal data class WeekViewData(
     val entries: List<TimetableEntry>,
     val dateRangeEntriesCache: DateRangeEntriesCache,
     val weekTimeSlots: List<WeekTimeSlot>,
@@ -217,7 +217,7 @@ internal fun WeekViewContent(
                         scope.launch {
                             snackbarHostState.showSnackbar(
                                 message = context.getString(R.string.msg_no_more_slots),
-                                duration = SnackbarHostState.SnackbarDuration.Short
+                                duration = androidx.compose.material3.SnackbarDuration.Short
                             )
                         }
                     } else {
@@ -225,7 +225,7 @@ internal fun WeekViewContent(
                         scope.launch {
                             snackbarHostState.showSnackbar(
                                 message = context.getString(R.string.msg_slot_added_success),
-                                duration = SnackbarHostState.SnackbarDuration.Short
+                                duration = androidx.compose.material3.SnackbarDuration.Short
                             )
                         }
                     }
