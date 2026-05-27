@@ -198,8 +198,8 @@ val WeekdayOptions = listOf(
  * @return 格式化的时间字符串，例如 "08:30"
  */
 fun formatMinutes(minutes: Int): String {
-    val safeMinutes = minutes.coerceIn(0, 24 * 60)
-    if (safeMinutes == 24 * 60) return "24:00"
+    val safeMinutes = minutes.coerceIn(0, EntryConstants.MINUTES_PER_DAY)
+    if (safeMinutes == EntryConstants.MINUTES_PER_DAY) return "24:00"
     return "%02d:%02d".format(safeMinutes / 60, safeMinutes % 60)
 }
 
@@ -210,21 +210,31 @@ fun formatMinutes(minutes: Int): String {
  * @return 成功时返回从午夜开始的分钟数，失败时返回 null
  */
 fun parseMinutes(text: String): Int? {
-    val trimmed = text.trim().replace('：', ':')
-    if (trimmed.isBlank()) return null
+    // 标准化全角字符为半角字符
+    val normalized = buildString(text.length) {
+        for (ch in text.trim()) {
+            when {
+                ch in '\uFF10'..'\uFF19' -> append(ch - '\uFF10' + '0')  // 全角数字 ０-９
+                ch == '\uFF1A' -> append(':')  // 全角冒号 ：
+                ch == '\uFF0D' -> append('-')  // 全角减号 －
+                else -> append(ch)
+            }
+        }
+    }
+    if (normalized.isBlank()) return null
 
-    val (hour, minute) = if (':' in trimmed) {
-        val parts = trimmed.split(":")
+    val (hour, minute) = if (':' in normalized) {
+        val parts = normalized.split(":")
         if (parts.size != 2) return null
         val h = parts[0].toIntOrNull() ?: return null
         val m = parts[1].toIntOrNull() ?: return null
         h to m
     } else {
-        if (!trimmed.all { it.isDigit() }) return null
-        when (trimmed.length) {
-            1, 2 -> (trimmed.toIntOrNull() ?: return null) to 0
-            3 -> (trimmed.substring(0, 1).toIntOrNull() ?: return null) to (trimmed.substring(1).toIntOrNull() ?: return null)
-            4 -> (trimmed.substring(0, 2).toIntOrNull() ?: return null) to (trimmed.substring(2).toIntOrNull() ?: return null)
+        if (!normalized.all { it.isDigit() }) return null
+        when (normalized.length) {
+            1, 2 -> (normalized.toIntOrNull() ?: return null) to 0
+            3 -> (normalized.substring(0, 1).toIntOrNull() ?: return null) to (normalized.substring(1).toIntOrNull() ?: return null)
+            4 -> (normalized.substring(0, 2).toIntOrNull() ?: return null) to (normalized.substring(2).toIntOrNull() ?: return null)
             else -> return null
         }
     }

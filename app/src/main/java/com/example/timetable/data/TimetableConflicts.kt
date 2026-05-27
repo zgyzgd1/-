@@ -29,7 +29,7 @@ fun suggestAdjustedEntryAfterConflicts(
 
     val conflictingEntries = entriesList
         .asSequence()
-        .filter { it.id != target.id && it.dayOfWeek == target.dayOfWeek && entriesShareAnyOccurrenceDate(it, target) }
+        .filter { it.id != target.id && timeRangesOverlap(it, target) && entriesShareAnyOccurrenceDate(it, target) }
         .sortedBy { it.startMinutes }
         .toList()
 
@@ -52,13 +52,17 @@ fun suggestAdjustedEntryAfterConflicts(
 }
 
 fun countConflictPairs(entriesList: List<TimetableEntry>): Int {
+    return countConflictPairs(entriesList, sorted = false)
+}
+
+fun countConflictPairs(entriesList: List<TimetableEntry>, sorted: Boolean): Int {
     var pairs = 0
-    val sorted = entriesList.sortedBy { it.startMinutes }
-    for (index in sorted.indices) {
-        val current = sorted[index]
-        for (nextIndex in index + 1 until sorted.size) {
-            val next = sorted[nextIndex]
-            if (!timeRangesOverlap(current, next)) continue
+    val sortedList = if (sorted) entriesList else entriesList.sortedBy { it.startMinutes }
+    for (index in sortedList.indices) {
+        val current = sortedList[index]
+        for (nextIndex in index + 1 until sortedList.size) {
+            val next = sortedList[nextIndex]
+            if (next.startMinutes >= current.endMinutes) break
             if (entriesShareAnyOccurrenceDate(current, next)) {
                 pairs++
             }
@@ -71,8 +75,16 @@ fun countConflictPairsBetween(
     targetEntries: List<TimetableEntry>,
     existingEntries: List<TimetableEntry>,
 ): Int {
+    return countConflictPairsBetween(targetEntries, existingEntries, sorted = false)
+}
+
+fun countConflictPairsBetween(
+    targetEntries: List<TimetableEntry>,
+    existingEntries: List<TimetableEntry>,
+    sorted: Boolean,
+): Int {
     var pairs = 0
-    val sortedExisting = existingEntries.sortedBy { it.startMinutes }
+    val sortedExisting = if (sorted) existingEntries else existingEntries.sortedBy { it.startMinutes }
     targetEntries.forEach { target ->
         for (existing in sortedExisting) {
             if (existing.startMinutes >= target.endMinutes) break
@@ -120,9 +132,18 @@ internal fun entriesShareAnyOccurrenceDate(
         else -> {
             val searchStart = maxOf(firstDate, secondDate)
             val candidateCount = recurringConflictSearchWeekCount(first, second, searchStart)
-            generateSequence(searchStart) { it.plusWeeks(1) }
-                .take(candidateCount)
-                .any { date -> occursOnDate(first, date) && occursOnDate(second, date) }
+            // Align search to the target day of week to ensure occursOnDate can match
+            val daysUntilTargetWeekday = (first.dayOfWeek - searchStart.dayOfWeek.value + 7) % 7
+            var currentDate = searchStart.plusDays(daysUntilTargetWeekday.toLong())
+            var remaining = candidateCount
+            while (remaining > 0) {
+                if (occursOnDate(first, currentDate) && occursOnDate(second, currentDate)) {
+                    return true
+                }
+                currentDate = currentDate.plusWeeks(1)
+                remaining--
+            }
+            false
         }
     }
 }

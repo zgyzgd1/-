@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Cleartext traffic is restricted to specific legacy URP systems that do not support HTTPS.
+         Accessing these systems via HTTP is a known security risk. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">hebau.edu.cn</domain>
+        <domain includeSubdomains="false">urp.hebau.edu.cn</domain>
+        <domain includeSubdomains="false">urp1.hebau.edu.cn</domain>
     </domain-config>
 </network-security-config>

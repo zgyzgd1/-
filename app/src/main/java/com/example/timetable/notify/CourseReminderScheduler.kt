@@ -76,6 +76,8 @@ object CourseReminderScheduler {
     private val reminderOptions = listOf(5, 10, 20, 30)
     private val resyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
+    private val resyncMutex = Mutex()
+    @Volatile private var resyncJob: Job? = null
 
     private val systemZone: ZoneId
         get() = ZoneId.systemDefault()
@@ -448,8 +450,10 @@ object CourseReminderScheduler {
      * 从存储中重新同步提醒。
      *
      * 此函数会从存储中获取课程表条目，然后调用 sync 函数重新同步提醒。
+     * 使用互斥锁确保同时只有一个重新同步操作在执行。
      *
      * @param context 应用上下文
+     * @param forceReschedule 是否强制重新调度
      * @param onComplete 完成回调
      */
     fun resyncFromStorage(
@@ -458,16 +462,19 @@ object CourseReminderScheduler {
         onComplete: (() -> Unit)? = null,
     ) {
         val appContext = context.applicationContext
-        resyncScope.launch {
-            try {
-                val entries = com.example.timetable.data.TimetableRepository.getEntriesNow(appContext)
-                sync(appContext, entries, forceReschedule = forceReschedule)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                Log.e(TAG, "Failed to resync reminders from storage.", error)
-            } finally {
-                onComplete?.invoke()
+        synchronized(resyncMutex) {
+            resyncJob?.cancel()
+            resyncJob = resyncScope.launch {
+                try {
+                    val entries = com.example.timetable.data.TimetableRepository.getEntriesNow(appContext)
+                    sync(appContext, entries, forceReschedule = forceReschedule)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Failed to resync reminders from storage.", error)
+                } finally {
+                    onComplete?.invoke()
+                }
             }
         }
     }

@@ -119,10 +119,13 @@ private val appDestinationNameStateSaver = Saver<String, Any>(
 )
 
 /**
- * 课程表应用主组件�? *
- * 应用的主入口点，包含日视图、周视图和设置页面的切换逻辑�? *
+ * 课程表应用主组件。
+ *
+ * 应用的主入口点，包含日视图、周视图和设置页面的切换逻辑。
+ *
  * @param launchTarget 启动目标，包含初始日期和目标页面
- * @param viewModel 课程表视图模�? */
+ * @param viewModel 课程表视图模型
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleApp(
@@ -586,13 +589,27 @@ fun ScheduleApp(
 }
 
 /**
- * 日视图内容�? *
- * 显示单日课程表，包含课程列表、下一节课信息、导�?导出功能等�? *
- * @param padding 内边�? * @param selectedDate 选中的日�? * @param selectedLocalDate 选中的本地日�? * @param minDate 最小日�? * @param maxDate 最大日�? * @param entries 所有课程条�? * @param selectedDayEntries 选中日期的课程条�? * @param dateRangeEntriesCache 日期范围课程缓存
+ * 日视图内容。
+ *
+ * 显示单日课程表，包含课程列表、下一节课信息、导入/导出功能等。
+ *
+ * @param padding 内边距
+ * @param selectedDate 选中的日期
+ * @param selectedLocalDate 选中的本地日期
+ * @param minDate 最小日期
+ * @param maxDate 最大日期
+ * @param entries 所有课程条目
+ * @param selectedDayEntries 选中日期的课程条目
+ * @param dateRangeEntriesCache 日期范围课程缓存
  * @param nextCourseSnapshot 下一节课快照
- * @param snackbarHostState  Snackbar 主机状�? * @param importLauncher 导入启动�? * @param exportLauncher 导出启动�? * @param onAcademicImport 教务系统导入入口
- * @param reminderConfig 提醒设置与权限入�? * @param appearanceConfig 背景和周卡片外观设置
- * @param callbacks 日视图交互回�? */
+ * @param snackbarHostState Snackbar 主机状态
+ * @param importLauncher 导入启动器
+ * @param exportLauncher 导出启动器
+ * @param onAcademicImport 教务系统导入入口
+ * @param reminderConfig 提醒设置与权限入口
+ * @param appearanceConfig 背景和周卡片外观设置
+ * @param callbacks 日视图交互回调
+ */
 @Composable
 private fun DayViewContent(
     padding: androidx.compose.foundation.layout.PaddingValues,
@@ -668,9 +685,12 @@ private fun DayViewContent(
 }
 
 /**
- * 创建默认的新周时段�? *
- * 根据现有时段列表创建一个默认的新周时段�? *
- * @param slots 现有周时段列�? * @return 新的周时段，�?null 如果无法创建
+ * 创建默认的新周时段。
+ *
+ * 根据现有时段列表创建一个默认的新周时段。
+ *
+ * @param slots 现有周时段列表
+ * @return 新的周时段，或 null 如果无法创建
  */
 internal fun defaultNewWeekSlot(slots: List<WeekTimeSlot>): WeekTimeSlot? {
     val lastSlot = slots.maxByOrNull { it.endMinutes }
@@ -684,10 +704,14 @@ internal fun defaultNewWeekSlot(slots: List<WeekTimeSlot>): WeekTimeSlot? {
 }
 
 /**
- * 调整周时段列表大小�? *
- * 根据目标数量调整周时段列表，添加或删除时段�? *
- * @param slots 现有周时段列�? * @param targetCount 目标数量
- * @return 调整后的周时段列�? */
+ * 调整周时段列表大小。
+ *
+ * 根据目标数量调整周时段列表，添加或删除时段。
+ *
+ * @param slots 现有周时段列表
+ * @param targetCount 目标数量
+ * @return 调整后的周时段列表
+ */
 internal fun resizeWeekTimeSlots(slots: List<WeekTimeSlot>, targetCount: Int): List<WeekTimeSlot> {
     if (targetCount <= 0) return slots
     if (slots.size == targetCount) return slots.sortedBy { it.startMinutes }
@@ -711,8 +735,10 @@ internal fun resizeWeekTimeSlots(slots: List<WeekTimeSlot>, targetCount: Int): L
 }
 
 /**
- * 创建下一个周时段�? *
- * 根据前一个周时段创建下一个周时段�? *
+ * 创建下一个周时段。
+ *
+ * 根据前一个周时段创建下一个周时段。
+ *
  * @param previous 前一个周时段
  * @return 下一个周时段，或 null 如果无法创建
  */
@@ -724,10 +750,13 @@ internal fun nextWeekTimeSlot(previous: WeekTimeSlot): WeekTimeSlot? {
 }
 
 /**
- * 待处理的课程冲突�? *
- * 表示课程条目更新时遇到的冲突�? *
+ * 待处理的课程冲突。
+ *
+ * 表示课程条目更新时遇到的冲突。
+ *
  * @param updatedEntry 更新后的课程条目
- * @param conflictEntry 冲突的课程条�? */
+ * @param conflictEntry 冲突的课程条目
+ */
 data class PendingEntryConflict(
     val updatedEntry: TimetableEntry,
     val conflictEntry: TimetableEntry,
@@ -770,8 +799,10 @@ internal fun NextCourseSnapshot.toCardState(unnamedLabel: String = ""): NextCour
 }
 
 /**
- * 创建快速课程条目模板�? *
- * 根据现有课程条目创建一个快速课程条目模板�? *
+ * 创建快速课程条目模板。
+ *
+ * 根据现有课程条目创建一个快速课程条目模板。
+ *
  * @param date 日期
  * @param existingEntries 现有课程条目
  * @return 课程条目模板
@@ -813,9 +844,13 @@ internal fun createQuickEntryTemplate(
 }
 
 /**
- * 复制课程条目模板�? *
- * 创建一个现有课程条目的副本�? *
- * @param source 源课程条�? * @return 复制的课程条�? */
+ * 复制课程条目模板。
+ *
+ * 创建一个现有课程条目的副本。
+ *
+ * @param source 源课程条目
+ * @return 复制的课程条目
+ */
 internal fun duplicateEntryTemplate(source: TimetableEntry): TimetableEntry {
     return TimetableEntry.create(
         groupId = source.groupId,

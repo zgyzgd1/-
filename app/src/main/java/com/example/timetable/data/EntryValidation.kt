@@ -1,12 +1,11 @@
-package com.example.timetable.data
+﻿package com.example.timetable.data
 
 import androidx.annotation.StringRes
 import com.example.timetable.R
 import java.time.LocalDate
 
 /**
- * 课程条目验证常量。
- */
+ * 璇剧▼鏉＄洰楠岃瘉甯搁噺銆? */
 object EntryConstants {
     const val MAX_TITLE_LENGTH = 64
     const val MAX_LOCATION_LENGTH = 64
@@ -17,10 +16,8 @@ object EntryConstants {
 }
 
 /**
- * 课程条目验证错误类型。
- *
- * 每个错误关联一个字符串资源 ID，用于显示错误提示。
- */
+ * 璇剧▼鏉＄洰楠岃瘉閿欒绫诲瀷銆? *
+ * 姣忎釜閿欒鍏宠仈涓€涓瓧绗︿覆璧勬簮 ID锛岀敤浜庢樉绀洪敊璇彁绀恒€? */
 enum class EntryValidationError(@param:StringRes val messageResId: Int) {
     EmptyTitle(R.string.error_empty_course_name),
     TitleTooLong(R.string.error_title_too_long),
@@ -45,19 +42,14 @@ enum class EntryValidationError(@param:StringRes val messageResId: Int) {
 }
 
 /**
- * 课程条目验证器。
- *
- * 统一管理课程条目的验证逻辑，供 UI 层（对话框）和 ViewModel 共用，
- * 避免验证规则重复定义。
- */
+ * 璇剧▼鏉＄洰楠岃瘉鍣ㄣ€? *
+ * 缁熶竴绠＄悊璇剧▼鏉＄洰鐨勯獙璇侀€昏緫锛屼緵 UI 灞傦紙瀵硅瘽妗嗭級鍜?ViewModel 鍏辩敤锛? * 閬垮厤楠岃瘉瑙勫垯閲嶅瀹氫箟銆? */
 object EntryValidator {
     /**
-     * 验证已构造的课程条目。
-     *
-     * 适用于 ViewModel 中对已规范化条目的验证。
-     *
-     * @param entry 待验证的课程条目
-     * @return 验证错误，或 null 表示验证通过
+     * 楠岃瘉宸叉瀯閫犵殑璇剧▼鏉＄洰銆?     *
+     * 閫傜敤浜?ViewModel 涓宸茶鑼冨寲鏉＄洰鐨勯獙璇併€?     *
+     * @param entry 寰呴獙璇佺殑璇剧▼鏉＄洰
+     * @return 楠岃瘉閿欒锛屾垨 null 琛ㄧず楠岃瘉閫氳繃
      */
     fun validate(entry: TimetableEntry): EntryValidationError? {
         val title = entry.title.trim()
@@ -87,7 +79,8 @@ object EntryValidator {
             entry.startMinutes >= entry.endMinutes -> EntryValidationError.EndBeforeStart
             recurrence == RecurrenceType.WEEKLY && semesterStartDate == null -> EntryValidationError.InvalidSemesterDate
             recurrence == RecurrenceType.WEEKLY && weekRule == WeekRule.CUSTOM && customWeeks.isEmpty() -> EntryValidationError.EmptyCustomWeeks
-            recurrence == RecurrenceType.WEEKLY && !occursOnDate(entry, entryDate) -> EntryValidationError.WeekMismatch
+            entryDate.dayOfWeek.value != entry.dayOfWeek -> EntryValidationError.WeekMismatch
+            !occursOnDate(entry, entryDate) -> EntryValidationError.WeekMismatch
             recurrence != RecurrenceType.WEEKLY && weekRule != WeekRule.ALL -> EntryValidationError.NonWeeklyOddEven
             recurrence != RecurrenceType.WEEKLY && customWeeks.isNotEmpty() -> EntryValidationError.NonWeeklyCustom
             recurrence != RecurrenceType.WEEKLY && skipWeeks.isNotEmpty() -> EntryValidationError.NonWeeklySkip
@@ -96,23 +89,16 @@ object EntryValidator {
     }
 
     /**
-     * 验证对话框中的原始输入数据。
-     *
-     * 适用于 UI 层在构造 TimetableEntry 之前的验证，
-     * 包含解析失败的检查。
-     *
-     * @param title 标题
-     * @param parsedDate 已解析的日期（null 表示解析失败）
-     * @param parsedStart 已解析的开始时间（null 表示解析失败）
-     * @param parsedEnd 已解析的结束时间（null 表示解析失败）
-     * @param location 地点
-     * @param note 备注
-     * @param recurrenceType 重复类型
-     * @param parsedSemesterStart 已解析的学期开始日期（null 表示解析失败或非周循环）
-     * @param customWeekList 自定义周次文本
-     * @param skipWeekList 跳过周次文本
-     * @param weekRule 周规则
-     * @return 验证错误，或 null 表示验证通过
+     * 楠岃瘉瀵硅瘽妗嗕腑鐨勫師濮嬭緭鍏ユ暟鎹€?     *
+     * 閫傜敤浜?UI 灞傚湪鏋勯€?TimetableEntry 涔嬪墠鐨勯獙璇侊紝
+     * 鍖呭惈瑙ｆ瀽澶辫触鐨勬鏌ャ€?     *
+     * @param title 鏍囬
+     * @param parsedDate 宸茶В鏋愮殑鏃ユ湡锛坣ull 琛ㄧず瑙ｆ瀽澶辫触锛?     * @param parsedStart 宸茶В鏋愮殑寮€濮嬫椂闂达紙null 琛ㄧず瑙ｆ瀽澶辫触锛?     * @param parsedEnd 宸茶В鏋愮殑缁撴潫鏃堕棿锛坣ull 琛ㄧず瑙ｆ瀽澶辫触锛?     * @param location 鍦扮偣
+     * @param note 澶囨敞
+     * @param recurrenceType 閲嶅绫诲瀷
+     * @param parsedSemesterStart 宸茶В鏋愮殑瀛︽湡寮€濮嬫棩鏈燂紙null 琛ㄧず瑙ｆ瀽澶辫触鎴栭潪鍛ㄥ惊鐜級
+     * @param customWeekList 鑷畾涔夊懆娆℃枃鏈?     * @param skipWeekList 璺宠繃鍛ㄦ鏂囨湰
+     * @param weekRule 鍛ㄨ鍒?     * @return 楠岃瘉閿欒锛屾垨 null 琛ㄧず楠岃瘉閫氳繃
      */
     fun validateDraft(
         title: String,
@@ -146,3 +132,4 @@ object EntryValidator {
         }
     }
 }
+

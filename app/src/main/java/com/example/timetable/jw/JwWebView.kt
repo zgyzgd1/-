@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
+// JavaScript is required for JW academic system's dynamic page rendering
+// and the JavaScript bridge interface for course data extraction.
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun JwWebView(

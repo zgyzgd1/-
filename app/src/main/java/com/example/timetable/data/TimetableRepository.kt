@@ -19,7 +19,7 @@ import org.json.JSONObject
  * 请使用 ContentProvider 或其他跨进程数据共享机制，而不是直接访问 Room；否则
  * [bootstrapMutex] 和 SharedPreferences 状态无法跨进程同步。
  */
-object TimetableRepository {
+object TimetableRepository : ITimetableRepository {
     private const val STORAGE_FILE_NAME = "timetable_entries.json"
     private const val PREFS_NAME = "timetable_repository_prefs"
     private const val KEY_SAMPLE_ENTRIES_SEEDED = "sample_entries_seeded"
@@ -122,20 +122,20 @@ object TimetableRepository {
         }
     }
 
-    suspend fun ensureMigrated(context: Context) = withContext(Dispatchers.IO) {
+    override suspend fun ensureMigrated(context: Context) = withContext(Dispatchers.IO) {
         ensureRoomBackedStorageReady(context)
     }
 
-    fun getGroupsStream(context: Context): Flow<List<TimetableGroup>> {
+    override fun getGroupsStream(context: Context): Flow<List<TimetableGroup>> {
         return AppDatabase.getDatabase(context).timetableDao().getGroupsStream()
     }
 
-    fun getActiveGroupId(context: Context): String {
+    override fun getActiveGroupId(context: Context): String {
         return getPreferences(context).getString(KEY_ACTIVE_GROUP_ID, TimetableGroup.DEFAULT_ID)
             ?: TimetableGroup.DEFAULT_ID
     }
 
-    suspend fun resolveActiveGroupId(context: Context): String = withContext(Dispatchers.IO) {
+    override suspend fun resolveActiveGroupId(context: Context): String = withContext(Dispatchers.IO) {
         ensureRoomBackedStorageReady(context)
         val appContext = context.applicationContext
         val dao = AppDatabase.getDatabase(appContext).timetableDao()
@@ -149,15 +149,15 @@ object TimetableRepository {
         }
     }
 
-    fun setActiveGroupId(context: Context, groupId: String) {
+    override fun setActiveGroupId(context: Context, groupId: String) {
         getPreferences(context).edit().putString(KEY_ACTIVE_GROUP_ID, groupId.ifBlank { TimetableGroup.DEFAULT_ID }).apply()
     }
 
-    fun getEntriesStream(context: Context, groupId: String = TimetableGroup.DEFAULT_ID): Flow<List<TimetableEntry>> {
+    override fun getEntriesStream(context: Context, groupId: String): Flow<List<TimetableEntry>> {
         return AppDatabase.getDatabase(context).timetableDao().getEntriesStream(groupId.ifBlank { TimetableGroup.DEFAULT_ID })
     }
 
-    suspend fun getEntriesNow(context: Context): List<TimetableEntry> {
+    override suspend fun getEntriesNow(context: Context): List<TimetableEntry> {
         return withContext(Dispatchers.IO) {
             ensureRoomBackedStorageReady(context)
             val dao = AppDatabase.getDatabase(context).timetableDao()
@@ -165,19 +165,19 @@ object TimetableRepository {
         }
     }
 
-    suspend fun upsertEntry(context: Context, entry: TimetableEntry) = withContext(Dispatchers.IO) {
+    override suspend fun upsertEntry(context: Context, entry: TimetableEntry) = withContext(Dispatchers.IO) {
         AppDatabase.getDatabase(context).timetableDao().upsertEntry(entry)
     }
 
-    suspend fun deleteEntry(context: Context, entryId: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteEntry(context: Context, entryId: String) = withContext(Dispatchers.IO) {
         AppDatabase.getDatabase(context).timetableDao().deleteEntry(entryId)
     }
 
-    suspend fun replaceAllEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun replaceAllEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
         replaceEntriesInGroup(context, resolveActiveGroupId(context), entries)
     }
 
-    suspend fun replaceEntriesInGroup(context: Context, groupId: String, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun replaceEntriesInGroup(context: Context, groupId: String, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
         val safeGroupId = groupId.ifBlank { TimetableGroup.DEFAULT_ID }
         val db = AppDatabase.getDatabase(context)
         db.withTransaction {
@@ -192,11 +192,11 @@ object TimetableRepository {
      * Merge import: preserves existing entries and upserts new ones (by id).
      * Unlike [replaceAllEntries], this method does not delete any existing data.
      */
-    suspend fun mergeEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun mergeEntries(context: Context, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
         mergeEntries(context, resolveActiveGroupId(context), entries)
     }
 
-    suspend fun mergeEntries(context: Context, groupId: String, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun mergeEntries(context: Context, groupId: String, entries: List<TimetableEntry>) = withContext(Dispatchers.IO) {
         val safeGroupId = groupId.ifBlank { TimetableGroup.DEFAULT_ID }
         val db = AppDatabase.getDatabase(context)
         db.withTransaction {
@@ -206,7 +206,7 @@ object TimetableRepository {
         }
     }
 
-    suspend fun createGroup(context: Context, name: String): TimetableGroup = withContext(Dispatchers.IO) {
+    override suspend fun createGroup(context: Context, name: String): TimetableGroup = withContext(Dispatchers.IO) {
         val db = AppDatabase.getDatabase(context)
         val group = TimetableGroup.create(name)
         db.withTransaction {
@@ -217,7 +217,7 @@ object TimetableRepository {
         group
     }
 
-    suspend fun createGroupWithEntries(context: Context, name: String, entries: List<TimetableEntry>): TimetableGroup = withContext(Dispatchers.IO) {
+    override suspend fun createGroupWithEntries(context: Context, name: String, entries: List<TimetableEntry>): TimetableGroup = withContext(Dispatchers.IO) {
         val db = AppDatabase.getDatabase(context)
         val group = TimetableGroup.create(name)
         db.withTransaction {

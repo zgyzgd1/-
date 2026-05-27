@@ -5,6 +5,9 @@ import java.util.Locale
 
 object JwImportContract {
     const val BRIDGE_NAME = "JwBridge"
+    // SECURITY RISK: The following university servers only support HTTP. Data transmitted
+    // (including credentials) is vulnerable to interception via Man-in-the-Middle (MitM) attacks.
+    // TODO: Monitor university server upgrades and migrate to HTTPS when available.
     const val PRIMARY_ENTRY_URL = "http://urp.hebau.edu.cn:1009/jwapp/sys/homeapp/index.do"
     const val ALTERNATE_ENTRY_URL = "http://urp1.hebau.edu.cn:1010/xsxk/profile/index.html"
     const val MAX_BRIDGE_JSON_BYTES = 512 * 1024
