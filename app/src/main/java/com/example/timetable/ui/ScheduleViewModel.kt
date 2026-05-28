@@ -12,6 +12,8 @@ import com.example.timetable.data.IcsCalendar
 import com.example.timetable.data.TimetableEntry
 import com.example.timetable.data.TimetableGroup
 import com.example.timetable.data.TimetableRepository
+import com.example.timetable.data.countConflictPairs
+import com.example.timetable.data.countConflictPairsBetween
 import com.example.timetable.data.findConflictForEntry
 import com.example.timetable.data.formatMinutes
 import com.example.timetable.data.parseEntryDate
@@ -131,8 +133,8 @@ class ScheduleViewModel(
     }
 
     suspend fun previewConflict(entry: TimetableEntry): TimetableEntry? {
-        val normalized = normalizeEntry(entry)
-        if (validateEntry(normalized) != null) return null
+        val normalized = importUseCase.normalizeEntry(entry, _activeGroupId.value)
+        if (importUseCase.validateEntry(normalized) != null) return null
         val entriesSnapshot = entries.value
         return runConflictCalculation {
             findConflictForEntry(normalized, entriesSnapshot)
@@ -140,8 +142,8 @@ class ScheduleViewModel(
     }
 
     suspend fun suggestResolvedEntry(entry: TimetableEntry): TimetableEntry? {
-        val normalized = normalizeEntry(entry)
-        if (validateEntry(normalized) != null) return null
+        val normalized = importUseCase.normalizeEntry(entry, _activeGroupId.value)
+        if (importUseCase.validateEntry(normalized) != null) return null
         val entriesSnapshot = entries.value
         return runConflictCalculation {
             suggestAdjustedEntryAfterConflicts(normalized, entriesSnapshot)
@@ -149,8 +151,8 @@ class ScheduleViewModel(
     }
 
     fun upsertEntry(entry: TimetableEntry, allowConflict: Boolean = false) {
-        val normalized = normalizeEntry(entry)
-        validateEntry(normalized)?.let {
+        val normalized = importUseCase.normalizeEntry(entry, _activeGroupId.value)
+        importUseCase.validateEntry(normalized)?.let {
             postMessage(getApplication<Application>().getString(R.string.vm_save_failed, it))
             return
         }

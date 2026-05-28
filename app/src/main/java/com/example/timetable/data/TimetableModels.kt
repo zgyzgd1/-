@@ -214,7 +214,7 @@ fun parseMinutes(text: String): Int? {
     val normalized = buildString(text.length) {
         for (ch in text.trim()) {
             when {
-                ch in '\uFF10'..'\uFF19' -> append(ch - '\uFF10' + '0')  // 全角数字 ０-９
+                ch in '\uFF10'..'\uFF19' -> append('0' + (ch.code - '\uFF10'.code))  // 全角数字 ０-９
                 ch == '\uFF1A' -> append(':')  // 全角冒号 ：
                 ch == '\uFF0D' -> append('-')  // 全角减号 －
                 else -> append(ch)

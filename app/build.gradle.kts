@@ -1,4 +1,4 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -39,7 +39,7 @@ if (configuredReleaseSigningInputs.isNotEmpty() && !hasReleaseSigning && release
 android {
     namespace = "com.example.timetable"
     compileSdk = 36
-    buildToolsVersion = "37.0.0"
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = "com.example.timetable"
@@ -126,3 +126,5 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.1.5")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+
